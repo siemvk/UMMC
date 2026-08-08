@@ -25,7 +25,8 @@ type ModConfig struct {
 		GameVersion string   `json:"game_version"`
 		Tags        []string `json:"tags"`
 	} `json:"metadata"`
-	Files map[string]interface{} `json:"files"`
+	InstallToAppRoot bool                   `json:"install_to_app_root"`
+	Files            map[string]interface{} `json:"files"`
 }
 
 var qpFilenameCmdArg string
@@ -39,6 +40,8 @@ var createModBaseCmdArg string
 var createModWinCmdArg bool
 var forceCreateModCmdArg bool
 var createModMacosCmdArg bool
+var createModInstallToAppRootCmdArg bool
+var loadModInstallToAppRootCmdArg bool
 
 var quickPatchCmdThingy = &cobra.Command{
 	Use:   "quickpatch [filename]",
@@ -167,11 +170,28 @@ var addModCmdThingy = &cobra.Command{
 			return
 		}
 
-		if _, err := help.AddMod(base, name, maker); err != nil {
+		installToAppRoot := createModInstallToAppRootCmdArg || (modCfg != nil && modCfg.InstallToAppRoot)
+
+		if installToAppRoot {
+			dstCfgPath := filepath.Join(dstPath, "mod_config.json")
+			var cfg map[string]interface{}
+			if data, err := os.ReadFile(dstCfgPath); err == nil {
+				_ = json.Unmarshal(data, &cfg)
+			}
+			if cfg == nil {
+				cfg = make(map[string]interface{})
+			}
+			cfg["install_to_app_root"] = true
+			if updatedData, err := json.MarshalIndent(cfg, "", "  "); err == nil {
+				_ = os.WriteFile(dstCfgPath, updatedData, 0644)
+			}
+		}
+
+		if _, err := help.AddMod(base, name, maker, installToAppRoot); err != nil {
 			fmt.Printf("Warning: Created mod folder at %s but failed to save DB entry: %v\n", dstPath, err)
 		}
 
-		fmt.Printf("Successfully created mod '%s' (Maker: %s, Base: %s)!\n", name, maker, base)
+		fmt.Printf("Successfully created mod '%s' (Maker: %s, Base: %s, InstallToAppRoot: %v)!\n", name, maker, base, installToAppRoot)
 		fmt.Printf("The mod is now stored in %s so you can safely delete the folder you gave as input and the mod will continue working.\n", dstPath)
 	},
 }
@@ -188,11 +208,11 @@ var listModsCmdThingy = &cobra.Command{
 
 		fmt.Println("=== Undertale Mods ===")
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tMAKER\tBASE")
-		fmt.Fprintln(w, "--\t----\t-----\t----")
+		fmt.Fprintln(w, "ID\tNAME\tMAKER\tBASE\tAPP ROOT")
+		fmt.Fprintln(w, "--\t----\t-----\t----\t--------")
 
 		for _, rec := range records {
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", rec.ID, rec.Name, rec.Maker, rec.Base)
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%t\n", rec.ID, rec.Name, rec.Maker, rec.Base, rec.InstallToAppRoot)
 		}
 		w.Flush()
 		fmt.Printf("\nTotal mods: %d\n", len(records))
@@ -271,14 +291,33 @@ var LoadModCmdThingy = &cobra.Command{
 			}
 		}
 
-		// Apply any .xdelta patch in the mod folder and copy all mod files to Undertale's Contents/Resources/
+		// Check install to app root preference
+		installToAppRoot := loadModInstallToAppRootCmdArg || rec.InstallToAppRoot
+		if !installToAppRoot {
+			cfgPath := filepath.Join(modDirPath, "mod_config.json")
+			if data, err := os.ReadFile(cfgPath); err == nil {
+				var cfg ModConfig
+				if err := json.Unmarshal(data, &cfg); err == nil {
+					if cfg.InstallToAppRoot {
+						installToAppRoot = true
+					}
+				}
+			}
+		}
+
 		entries, errDir := os.ReadDir(modDirPath)
 		if errDir != nil {
 			fmt.Printf("Error reading mod directory: %v\n", errDir)
 			return
 		}
 
-		resourcesDir := filepath.Join(targetAppPath, "Contents/Resources")
+		var destDir string
+		if installToAppRoot {
+			destDir = targetAppPath
+			fmt.Println("Installing mod files to UNDERTALE.app/ root directory...")
+		} else {
+			destDir = filepath.Join(targetAppPath, "Contents/Resources")
+		}
 
 		// First: search for and apply any .xdelta patch file in the mod folder
 		for _, entry := range entries {
@@ -292,7 +331,7 @@ var LoadModCmdThingy = &cobra.Command{
 			}
 		}
 
-		// Second: copy all files and folders from mod directory to Contents/Resources/
+		// Second: copy all files and folders from mod directory to destination (Contents/Resources/ or app root)
 		for _, entry := range entries {
 			nameLower := strings.ToLower(entry.Name())
 			if strings.HasSuffix(nameLower, ".xdelta") || nameLower == "mod_config.json" {
@@ -304,10 +343,10 @@ var LoadModCmdThingy = &cobra.Command{
 			if nameLower == "data.win" {
 				dst = targetGameIosPath
 			} else {
-				dst = filepath.Join(resourcesDir, entry.Name())
+				dst = filepath.Join(destDir, entry.Name())
 			}
 
-			if err := help.CopyFile(src, dst, true); err != nil {
+			if err := help.CopyOverlay(src, dst, true); err != nil {
 				fmt.Printf("Warning: Failed to copy %s: %v\n", entry.Name(), err)
 			}
 		}
@@ -384,10 +423,12 @@ func init() {
 	addModCmdThingy.Flags().BoolVarP(&createModWinCmdArg, "win", "w", false, "Set base to 'win' (Windows version)")
 	addModCmdThingy.Flags().BoolVar(&createModMacosCmdArg, "macos-mod", false, "Specify that this is a macOS mod (prevents appending '-w' to base)")
 	addModCmdThingy.Flags().BoolVarP(&forceCreateModCmdArg, "force", "f", false, "Force overwrite if mod already exists")
+	addModCmdThingy.Flags().BoolVar(&createModInstallToAppRootCmdArg, "install-to-app-root", false, "Install mod files to UNDERTALE.app/ instead of Contents/Resources/")
 
 	removeModCmdThingy.Flags().StringVarP(&removeModNameCmdArg, "name", "n", "", "The name of the mod to remove")
 	removeModCmdThingy.Flags().StringVarP(&removeModIdCmdArg, "id", "i", "", "The ID of the mod to remove")
 
 	LoadModCmdThingy.Flags().StringVarP(&loadModNameCmdArg, "name", "n", "", "The name of the mod to play")
 	LoadModCmdThingy.Flags().StringVarP(&loadModIdCmdArg, "id", "i", "", "The ID of the mod to play")
+	LoadModCmdThingy.Flags().BoolVar(&loadModInstallToAppRootCmdArg, "install-to-app-root", false, "Install mod files to UNDERTALE.app/ instead of Contents/Resources/")
 }

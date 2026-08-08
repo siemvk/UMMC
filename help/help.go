@@ -188,3 +188,100 @@ func copyFileContents(srcPath, dstPath string, mode os.FileMode) error {
 	return nil
 }
 
+// CopyOverlay copies a file or recursively overlays a directory tree from srcPath to dstPath.
+// Unlike CopyDir, if dstPath is an existing directory, CopyOverlay merges files into it rather than removing dstPath.
+func CopyOverlay(srcPath, dstPath string, force bool) error {
+	srcPath = ExpandPath(srcPath)
+	dstPath = ExpandPath(dstPath)
+
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat source %s: %w", srcPath, err)
+	}
+
+	if !info.IsDir() {
+		return CopyFile(srcPath, dstPath, force)
+	}
+
+	absSrc, errSrc := filepath.Abs(srcPath)
+	absDst, errDst := filepath.Abs(dstPath)
+	if errSrc == nil && errDst == nil {
+		if absSrc == absDst {
+			return fmt.Errorf("source and destination are the same directory: %s", srcPath)
+		}
+		if strings.HasPrefix(absSrc, absDst+string(filepath.Separator)) {
+			return fmt.Errorf("cannot copy parent directory %s into subdirectory %s", srcPath, dstPath)
+		}
+	}
+
+	if dstInfo, err := os.Stat(dstPath); err == nil {
+		if !dstInfo.IsDir() {
+			if !force {
+				return fmt.Errorf("safe mode active: destination %s is a file", dstPath)
+			}
+			if err := os.Remove(dstPath); err != nil {
+				return fmt.Errorf("failed to remove existing destination file at %s: %w", dstPath, err)
+			}
+			if err := os.MkdirAll(dstPath, info.Mode().Perm()); err != nil {
+				return fmt.Errorf("failed to create destination directory %s: %w", dstPath, err)
+			}
+		}
+	} else if os.IsNotExist(err) {
+		if err := os.MkdirAll(dstPath, info.Mode().Perm()); err != nil {
+			return fmt.Errorf("failed to create destination directory %s: %w", dstPath, err)
+		}
+	} else {
+		return fmt.Errorf("failed to stat destination %s: %w", dstPath, err)
+	}
+
+	return filepath.WalkDir(srcPath, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		absPath, errAbs := filepath.Abs(path)
+		if errAbs == nil && errDst == nil {
+			if absPath == absDst || strings.HasPrefix(absPath, absDst+string(filepath.Separator)) {
+				return filepath.SkipDir
+			}
+		}
+
+		relPath, err := filepath.Rel(srcPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path for %s: %w", path, err)
+		}
+
+		if relPath == "." {
+			return nil
+		}
+
+		targetPath := filepath.Join(dstPath, relPath)
+		entryInfo, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("failed to get info for %s: %w", path, err)
+		}
+
+		if entryInfo.Mode()&os.ModeSymlink != 0 {
+			linkTarget, err := os.Readlink(path)
+			if err != nil {
+				return fmt.Errorf("failed to read symlink %s: %w", path, err)
+			}
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return fmt.Errorf("failed to create parent directory for symlink at %s: %w", targetPath, err)
+			}
+			_ = os.Remove(targetPath)
+			if err := os.Symlink(linkTarget, targetPath); err != nil {
+				return fmt.Errorf("failed to create symlink at %s: %w", targetPath, err)
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			return os.MkdirAll(targetPath, entryInfo.Mode().Perm())
+		}
+
+		return copyFileContents(path, targetPath, entryInfo.Mode())
+	})
+}
+
+

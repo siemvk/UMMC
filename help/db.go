@@ -44,11 +44,15 @@ func initSchema(db *sql.DB) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		base TEXT NOT NULL,
 		name TEXT NOT NULL,
-		maker TEXT NOT NULL
+		maker TEXT NOT NULL,
+		install_to_app_root INTEGER DEFAULT 0
 	);
 	`
-	_, err := db.Exec(query)
-	return err
+	if _, err := db.Exec(query); err != nil {
+		return err
+	}
+	_, _ = db.Exec("ALTER TABLE mods ADD COLUMN install_to_app_root INTEGER DEFAULT 0;")
+	return nil
 }
 
 type BackupRecord struct {
@@ -115,21 +119,27 @@ func GetBackups() ([]BackupRecord, error) {
 }
 
 type ModRecord struct {
-	ID    int    `json:"id"`
-	Base  string `json:"base"`
-	Name  string `json:"name"`
-	Maker string `json:"maker"`
+	ID               int    `json:"id"`
+	Base             string `json:"base"`
+	Name             string `json:"name"`
+	Maker            string `json:"maker"`
+	InstallToAppRoot bool   `json:"install_to_app_root"`
 }
 
 // AddMod inserts a new mod record into the database and returns the generated ID.
-func AddMod(base, name, maker string) (int64, error) {
+func AddMod(base, name, maker string, installToAppRoot bool) (int64, error) {
 	db, err := GetDB()
 	if err != nil {
 		return 0, err
 	}
 	defer db.Close()
 
-	res, err := db.Exec("INSERT INTO mods (base, name, maker) VALUES (?, ?, ?)", base, name, maker)
+	installToAppRootInt := 0
+	if installToAppRoot {
+		installToAppRootInt = 1
+	}
+
+	res, err := db.Exec("INSERT INTO mods (base, name, maker, install_to_app_root) VALUES (?, ?, ?, ?)", base, name, maker, installToAppRootInt)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert mod into database: %w", err)
 	}
@@ -145,7 +155,7 @@ func GetMods() ([]ModRecord, error) {
 	}
 	defer db.Close()
 
-	query := `SELECT id, base, name, maker FROM mods ORDER BY id DESC`
+	query := `SELECT id, base, name, maker, install_to_app_root FROM mods ORDER BY id DESC`
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -155,9 +165,11 @@ func GetMods() ([]ModRecord, error) {
 	var records []ModRecord
 	for rows.Next() {
 		var rec ModRecord
-		if err := rows.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker); err != nil {
+		var installToAppRootInt int
+		if err := rows.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &installToAppRootInt); err != nil {
 			continue
 		}
+		rec.InstallToAppRoot = (installToAppRootInt != 0)
 		records = append(records, rec)
 	}
 	return records, nil
@@ -187,10 +199,10 @@ func GetModByNameOrId(name string, id string) (*ModRecord, error) {
 	var arg interface{}
 
 	if id != "" {
-		query = `SELECT id, base, name, maker FROM mods WHERE id = ? LIMIT 1`
+		query = `SELECT id, base, name, maker, install_to_app_root FROM mods WHERE id = ? LIMIT 1`
 		arg = id
 	} else if name != "" {
-		query = `SELECT id, base, name, maker FROM mods WHERE name = ? ORDER BY id DESC LIMIT 1`
+		query = `SELECT id, base, name, maker, install_to_app_root FROM mods WHERE name = ? ORDER BY id DESC LIMIT 1`
 		arg = name
 	} else {
 		return nil, fmt.Errorf("neither id nor name provided")
@@ -198,9 +210,11 @@ func GetModByNameOrId(name string, id string) (*ModRecord, error) {
 
 	row := db.QueryRow(query, arg)
 	var rec ModRecord
-	if err := row.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker); err != nil {
+	var installToAppRootInt int
+	if err := row.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &installToAppRootInt); err != nil {
 		return nil, err
 	}
+	rec.InstallToAppRoot = (installToAppRootInt != 0)
 	return &rec, nil
 }
 
