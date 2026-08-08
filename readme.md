@@ -48,5 +48,7 @@ If you are getting an error about steamcmd not being found, install steamcmd and
 ## Mods confirmed to work with UMMC on macOS
 - [C!UNDERTALE - REDUX UPDATE](https://gamebanana.com/mods/601488)
 - [Undertale - Just have fun](https://gamebanana.com/mods/download/542409#FileInfo_1759398) (See [my notes](./notes/JHF.md) for instructions.)
+- [Undertale Connect v1.3.4](https://landimizer.itch.io/ut-connect)
 
 ## Mods that sadly do not work with UMMC on macOS
+- [Undertale Together](https://www.moddb.com/mods/undertale-together) (the other versions of this mod also dont work.)
