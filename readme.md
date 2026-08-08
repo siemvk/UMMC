@@ -77,5 +77,6 @@ UMMC is a bit more then just a simple patcher as it can download windows version
 - [Undertale Connect v1.3.4](https://landimizer.itch.io/ut-connect)
 
 ## Mods that sadly do not work with UMMC on macOS
-- [Undertale Together](https://www.moddb.com/mods/undertale-together) (the other versions of this mod also dont work.)
-- [Undertale Red & Yellow](https://gamejolt.com/games/undertale-red-yellow/877387)
+- [Undertale Together](https://www.moddb.com/mods/undertale-together) (the other versions of this mod also dont work.) (unkown why its broken)
+- [Undertale Red & Yellow](https://gamejolt.com/games/undertale-red-yellow/877387) (.exe file is not compatible with macOS)
+- [UNDERTALE Hard Mode: Director's Cut](https://gamejolt.com/games/uthardmodedc/973954) (.exe file is not compatible with macOS)
