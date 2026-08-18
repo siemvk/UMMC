@@ -38,25 +38,28 @@ func initSchema(db *sql.DB) error {
 		version TEXT NOT NULL,
 		app_path TEXT NOT NULL,
 		backup_path TEXT NOT NULL,
-		created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		game TEXT DEFAULT 'undertale',
+		chapter INTEGER DEFAULT 0
 	);
 	CREATE TABLE IF NOT EXISTS mods (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		base TEXT NOT NULL,
 		name TEXT NOT NULL,
 		maker TEXT NOT NULL,
-		install_to_app_root INTEGER DEFAULT 0
-	);
-
-	CREATE TABLE IF NOT EXISTS saves (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		
+		install_to_app_root INTEGER DEFAULT 0,
+		game TEXT DEFAULT 'undertale',
+		chapter INTEGER DEFAULT 0
 	);
 	`
 	if _, err := db.Exec(query); err != nil {
 		return err
 	}
 	_, _ = db.Exec("ALTER TABLE mods ADD COLUMN install_to_app_root INTEGER DEFAULT 0;")
+	_, _ = db.Exec("ALTER TABLE backups ADD COLUMN game TEXT DEFAULT 'undertale';")
+	_, _ = db.Exec("ALTER TABLE backups ADD COLUMN chapter INTEGER DEFAULT 0;")
+	_, _ = db.Exec("ALTER TABLE mods ADD COLUMN game TEXT DEFAULT 'undertale';")
+	_, _ = db.Exec("ALTER TABLE mods ADD COLUMN chapter INTEGER DEFAULT 0;")
 	return nil
 }
 
@@ -66,6 +69,28 @@ type BackupRecord struct {
 	AppPath    string    `json:"app_path"`
 	BackupPath string    `json:"backup_path"`
 	CreatedAt  time.Time `json:"created_at"`
+	Game       string    `json:"game"`
+	Chapter    int       `json:"chapter"`
+}
+
+// AddBackup inserts a new backup record into the database and returns the generated ID.
+func AddBackup(version, appPath, backupPath, game string, chapter int) (int64, error) {
+	db, err := GetDB()
+	if err != nil {
+		return 0, err
+	}
+	defer db.Close()
+
+	if game == "" {
+		game = "undertale"
+	}
+
+	res, err := db.Exec("INSERT INTO backups (version, app_path, backup_path, game, chapter) VALUES (?, ?, ?, ?, ?)", version, appPath, backupPath, game, chapter)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert backup into database: %w", err)
+	}
+
+	return res.LastInsertId()
 }
 
 // GetBackupByVersionOrId queries the database for a backup by ID if provided, otherwise by version.
@@ -80,10 +105,10 @@ func GetBackupByVersionOrId(version string, id string) (*BackupRecord, error) {
 	var arg interface{}
 
 	if id != "" {
-		query = `SELECT id, version, app_path, backup_path, created_at FROM backups WHERE id = ? LIMIT 1`
+		query = `SELECT id, version, app_path, backup_path, created_at, COALESCE(game, 'undertale'), COALESCE(chapter, 0) FROM backups WHERE id = ? LIMIT 1`
 		arg = id
 	} else if version != "" {
-		query = `SELECT id, version, app_path, backup_path, created_at FROM backups WHERE version = ? ORDER BY id DESC LIMIT 1`
+		query = `SELECT id, version, app_path, backup_path, created_at, COALESCE(game, 'undertale'), COALESCE(chapter, 0) FROM backups WHERE version = ? ORDER BY id DESC LIMIT 1`
 		arg = version
 	} else {
 		return nil, fmt.Errorf("neither id nor version provided")
@@ -91,7 +116,7 @@ func GetBackupByVersionOrId(version string, id string) (*BackupRecord, error) {
 
 	row := db.QueryRow(query, arg)
 	var rec BackupRecord
-	if err := row.Scan(&rec.ID, &rec.Version, &rec.AppPath, &rec.BackupPath, &rec.CreatedAt); err != nil {
+	if err := row.Scan(&rec.ID, &rec.Version, &rec.AppPath, &rec.BackupPath, &rec.CreatedAt, &rec.Game, &rec.Chapter); err != nil {
 		return nil, err
 	}
 	return &rec, nil
@@ -105,7 +130,7 @@ func GetBackups() ([]BackupRecord, error) {
 	}
 	defer db.Close()
 
-	query := `SELECT id, version, app_path, backup_path, created_at FROM backups ORDER BY id DESC`
+	query := `SELECT id, version, app_path, backup_path, created_at, COALESCE(game, 'undertale'), COALESCE(chapter, 0) FROM backups ORDER BY id DESC`
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -115,7 +140,7 @@ func GetBackups() ([]BackupRecord, error) {
 	var records []BackupRecord
 	for rows.Next() {
 		var rec BackupRecord
-		if err := rows.Scan(&rec.ID, &rec.Version, &rec.AppPath, &rec.BackupPath, &rec.CreatedAt); err != nil {
+		if err := rows.Scan(&rec.ID, &rec.Version, &rec.AppPath, &rec.BackupPath, &rec.CreatedAt, &rec.Game, &rec.Chapter); err != nil {
 			continue
 		}
 		records = append(records, rec)
@@ -129,10 +154,12 @@ type ModRecord struct {
 	Name             string `json:"name"`
 	Maker            string `json:"maker"`
 	InstallToAppRoot bool   `json:"install_to_app_root"`
+	Game             string `json:"game"`
+	Chapter          int    `json:"chapter"`
 }
 
 // AddMod inserts a new mod record into the database and returns the generated ID.
-func AddMod(base, name, maker string, installToAppRoot bool) (int64, error) {
+func AddMod(base, name, maker string, installToAppRoot bool, game string, chapter int) (int64, error) {
 	db, err := GetDB()
 	if err != nil {
 		return 0, err
@@ -144,7 +171,11 @@ func AddMod(base, name, maker string, installToAppRoot bool) (int64, error) {
 		installToAppRootInt = 1
 	}
 
-	res, err := db.Exec("INSERT INTO mods (base, name, maker, install_to_app_root) VALUES (?, ?, ?, ?)", base, name, maker, installToAppRootInt)
+	if game == "" {
+		game = "undertale"
+	}
+
+	res, err := db.Exec("INSERT INTO mods (base, name, maker, install_to_app_root, game, chapter) VALUES (?, ?, ?, ?, ?, ?)", base, name, maker, installToAppRootInt, game, chapter)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert mod into database: %w", err)
 	}
@@ -160,7 +191,7 @@ func GetMods() ([]ModRecord, error) {
 	}
 	defer db.Close()
 
-	query := `SELECT id, base, name, maker, install_to_app_root FROM mods ORDER BY id DESC`
+	query := `SELECT id, base, name, maker, install_to_app_root, COALESCE(game, 'undertale'), COALESCE(chapter, 0) FROM mods ORDER BY id DESC`
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -171,7 +202,7 @@ func GetMods() ([]ModRecord, error) {
 	for rows.Next() {
 		var rec ModRecord
 		var installToAppRootInt int
-		if err := rows.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &installToAppRootInt); err != nil {
+		if err := rows.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &installToAppRootInt, &rec.Game, &rec.Chapter); err != nil {
 			continue
 		}
 		rec.InstallToAppRoot = (installToAppRootInt != 0)
@@ -204,10 +235,10 @@ func GetModByNameOrId(name string, id string) (*ModRecord, error) {
 	var arg interface{}
 
 	if id != "" {
-		query = `SELECT id, base, name, maker, install_to_app_root FROM mods WHERE id = ? LIMIT 1`
+		query = `SELECT id, base, name, maker, install_to_app_root, COALESCE(game, 'undertale'), COALESCE(chapter, 0) FROM mods WHERE id = ? LIMIT 1`
 		arg = id
 	} else if name != "" {
-		query = `SELECT id, base, name, maker, install_to_app_root FROM mods WHERE name = ? ORDER BY id DESC LIMIT 1`
+		query = `SELECT id, base, name, maker, install_to_app_root, COALESCE(game, 'undertale'), COALESCE(chapter, 0) FROM mods WHERE name = ? ORDER BY id DESC LIMIT 1`
 		arg = name
 	} else {
 		return nil, fmt.Errorf("neither id nor name provided")
@@ -216,7 +247,7 @@ func GetModByNameOrId(name string, id string) (*ModRecord, error) {
 	row := db.QueryRow(query, arg)
 	var rec ModRecord
 	var installToAppRootInt int
-	if err := row.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &installToAppRootInt); err != nil {
+	if err := row.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &installToAppRootInt, &rec.Game, &rec.Chapter); err != nil {
 		return nil, err
 	}
 	rec.InstallToAppRoot = (installToAppRootInt != 0)

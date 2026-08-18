@@ -284,4 +284,107 @@ func CopyOverlay(srcPath, dstPath string, force bool) error {
 	})
 }
 
+// GetDefaultAppPath returns the default macOS Steam app path for Undertale or Deltarune.
+func GetDefaultAppPath(game string) string {
+	if strings.ToLower(game) == "deltarune" {
+		return ExpandPath("~/Library/Application Support/Steam/steamapps/common/DELTARUNE/DELTARUNE.app")
+	}
+	return ExpandPath("~/Library/Application Support/Steam/steamapps/common/Undertale/UNDERTALE.app")
+}
 
+// GetDeltaruneChapterDir returns the path to chapter directory inside DELTARUNE.app (e.g. chapter1_mac).
+func GetDeltaruneChapterDir(appPath string, chapter int) string {
+	if chapter <= 0 {
+		chapter = 1
+	}
+	resDir := filepath.Join(appPath, "Contents/Resources")
+	candidate1 := filepath.Join(resDir, fmt.Sprintf("chapter%d_mac", chapter))
+	if _, err := os.Stat(candidate1); err == nil {
+		return candidate1
+	}
+	candidate2 := filepath.Join(resDir, fmt.Sprintf("chapter%d", chapter))
+	if _, err := os.Stat(candidate2); err == nil {
+		return candidate2
+	}
+	return candidate1
+}
+
+// GetGameDataPath returns game.ios path for Undertale or Deltarune (chapter specific).
+func GetGameDataPath(appPath string, game string, chapter int) string {
+	if strings.ToLower(game) == "deltarune" {
+		return filepath.Join(GetDeltaruneChapterDir(appPath, chapter), "game.ios")
+	}
+	return filepath.Join(appPath, "Contents/Resources/game.ios")
+}
+
+// GetGameResourceDir returns the target resource directory for mods (chapter folder for Deltarune, Contents/Resources for Undertale).
+func GetGameResourceDir(appPath string, game string, chapter int) string {
+	if strings.ToLower(game) == "deltarune" {
+		return GetDeltaruneChapterDir(appPath, chapter)
+	}
+	return filepath.Join(appPath, "Contents/Resources")
+}
+
+// FindWindowsDataWin finds the Windows data.win file for Undertale or Deltarune (chapter specific).
+func FindWindowsDataWin(game string, chapter int) string {
+	if strings.ToLower(game) == "deltarune" {
+		if chapter <= 0 {
+			chapter = 1
+		}
+		candidates := []string{
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d_windows/data.win", chapter)),
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d_win/data.win", chapter)),
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d/data.win", chapter)),
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/ch%d/data.win", chapter)),
+			ExpandPath("~/UMMC/windows/deltarune/data.win"),
+			ExpandPath("~/UMMC/windows/data.win"),
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				return c
+			}
+		}
+		return candidates[0]
+	}
+
+	candidates := []string{
+		ExpandPath("~/UMMC/windows/data.win"),
+		ExpandPath("~/UMMC/windows/Undertale/data.win"),
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return candidates[0]
+}
+
+// IsWinPatched checks if the given app path or its chapter directory contains a winpatchdetect marker.
+func IsWinPatched(appPath string, game string, chapter int) bool {
+	appPath = ExpandPath(appPath)
+
+	if strings.ToLower(game) == "deltarune" {
+		if chapter <= 0 {
+			chapter = 1
+		}
+		chDir := GetDeltaruneChapterDir(appPath, chapter)
+		if _, err := os.Stat(filepath.Join(chDir, "winpatchdetect")); err == nil {
+			return true
+		}
+		return false
+	}
+
+	standardPaths := []string{
+		filepath.Join(appPath, "Contents/Resources/winpatchdetect"),
+		filepath.Join(appPath, "winpatchdetect"),
+		filepath.Join(filepath.Dir(appPath), "winpatchdetect"),
+	}
+
+	for _, p := range standardPaths {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+
+	return false
+}

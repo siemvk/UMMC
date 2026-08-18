@@ -19,12 +19,28 @@ var usernameWinCmdArg string
 
 var downloadWinCmdThingy = &cobra.Command{
 	Use:   "download-win [username]",
-	Short: "Download Undertale for Windows via SteamCMD",
+	Short: "Download Undertale or Deltarune for Windows via SteamCMD",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		username := usernameWinCmdArg
 		if username == "" && len(args) > 0 {
 			username = args[0]
+		}
+
+		game := "undertale"
+		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
+			game = "undertale"
+		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
+			game = "deltarune"
+		}
+
+		appID := "391540"
+		targetDir := help.ExpandPath("~/UMMC/windows/")
+		gameName := "Undertale"
+		if game == "deltarune" {
+			appID = "1671210"
+			targetDir = help.ExpandPath("~/UMMC/windows/deltarune/")
+			gameName = "Deltarune"
 		}
 
 		scriptPath := "cmds/windown.sh"
@@ -55,6 +71,9 @@ var downloadWinCmdThingy = &cobra.Command{
 		if username != "" {
 			env = append(env, fmt.Sprintf("USERNAME=%s", username))
 		}
+		env = append(env, fmt.Sprintf("APP_ID=%s", appID))
+		env = append(env, fmt.Sprintf("TARGET_DIR=%s", targetDir))
+		env = append(env, fmt.Sprintf("GAME_NAME=%s", gameName))
 		execCmd.Env = env
 
 		if err := execCmd.Run(); err != nil {
@@ -65,34 +84,50 @@ var downloadWinCmdThingy = &cobra.Command{
 }
 
 var makeWinMacVer = &cobra.Command{
-	Use:   "inject [optional source data.win] [optional target game.ios or UNDERTALE.app]",
-	Short: "Inject the windows data.win into your macos build of undertale as game.ios",
+	Use:   "inject [optional source data.win] [optional target game.ios or app]",
+	Short: "Inject the Windows data.win into your macOS build of Undertale or Deltarune as game.ios",
 	Args:  cobra.MaximumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		winDataPath := help.ExpandPath("~/UMMC/windows/data.win")
-		if len(args) > 0 {
-			winDataPath = help.ExpandPath(args[0])
-		}
-
-		if _, err := os.Stat(winDataPath); os.IsNotExist(err) {
-			altPath := help.ExpandPath("~/UMMC/windows/Undertale/data.win")
-			if _, errAlt := os.Stat(altPath); errAlt == nil {
-				winDataPath = altPath
-			} else {
-				fmt.Printf("Error: Windows data file not found at %s. Did you run 'UMMC download-win'?\n", winDataPath)
-				return
+		game := "undertale"
+		chapter := 0
+		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
+			game = "undertale"
+		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
+			game = "deltarune"
+			chapter = DeltaruneCmdArg
+			if chapter <= 0 {
+				chapter = 1
 			}
 		}
 
-		targetPath := help.ExpandPath("~/Library/Application Support/Steam/steamapps/common/Undertale/UNDERTALE.app/Contents/Resources/game.ios")
+		var winDataPath string
+		if len(args) > 0 {
+			winDataPath = help.ExpandPath(args[0])
+		} else {
+			winDataPath = help.FindWindowsDataWin(game, chapter)
+		}
+
+		if _, err := os.Stat(winDataPath); os.IsNotExist(err) {
+			fmt.Printf("Error: Windows data file not found at %s. Did you run 'UMMC download-win'?\n", winDataPath)
+			return
+		}
+
+
+		defaultApp := help.GetDefaultAppPath(game)
+		targetPath := help.GetGameDataPath(defaultApp, game, chapter)
+
 		if len(args) > 1 {
 			target := help.ExpandPath(args[1])
 			if strings.HasSuffix(target, ".ios") {
 				targetPath = target
 			} else if strings.HasSuffix(target, ".app") {
-				targetPath = filepath.Join(target, "Contents/Resources/game.ios")
+				targetPath = help.GetGameDataPath(target, game, chapter)
 			} else {
-				targetPath = filepath.Join(target, "UNDERTALE.app/Contents/Resources/game.ios")
+				appName := "UNDERTALE.app"
+				if game == "deltarune" {
+					appName = "DELTARUNE.app"
+				}
+				targetPath = help.GetGameDataPath(filepath.Join(target, appName), game, chapter)
 			}
 		}
 
@@ -107,15 +142,22 @@ var makeWinMacVer = &cobra.Command{
 			fmt.Printf("Warning: Failed to create winpatchdetect marker file at %s: %v\n", markerPath, err)
 		}
 
-		fmt.Printf("Successfully injected Windows data.win into macOS Undertale as game.ios!\n")
-		fmt.Println("Recommendation: Run 'UMMC backup create' to create a backup of this injected Windows build.")
+		if game == "deltarune" {
+			fmt.Printf("Successfully injected Windows data.win into macOS Deltarune Chapter %d as game.ios!\n", chapter)
+			fmt.Printf("Recommendation: Run 'UMMC backup create -d %d' to create a backup of this injected build.\n", chapter)
+		} else {
+			fmt.Printf("Successfully injected Windows data.win into macOS Undertale as game.ios!\n")
+			fmt.Println("Recommendation: Run 'UMMC backup create' to create a backup of this injected Windows build.")
+		}
 	},
 }
+
 
 func init() {
 	rootCmd.AddCommand(downloadWinCmdThingy)
 	rootCmd.AddCommand(makeWinMacVer)
 	downloadWinCmdThingy.AddCommand(makeWinMacVer)
-	downloadWinCmdThingy.Flags().StringVarP(&usernameWinCmdArg, "username", "u", "", "Steam username to log into SteamCMD")
+	downloadWinCmdThingy.Flags().StringVarP(&usernameWinCmdArg, "username", "U", "", "Steam username to log into SteamCMD")
 }
+
 

@@ -8,20 +8,22 @@ if ! command -v steamcmd &> /dev/null; then
     exit 1
 fi
 
+APP_ID="${APP_ID:-391540}"
 TARGET_DIR="${TARGET_DIR:-$HOME/UMMC/windows/}"
+GAME_NAME="${GAME_NAME:-Undertale}"
 
 if [ -z "$USERNAME" ]; then
     read -p "Enter Steam Username: " USERNAME
 fi
 
-echo "Starting Undertale Windows download via SteamCMD..."
+echo "Starting $GAME_NAME Windows download via SteamCMD (App ID $APP_ID)..."
 
 steamcmd \
   +@sSteamCmdForcePlatformType windows \
   +force_install_dir "$TARGET_DIR" \
   +login "$USERNAME" \
-  +app_update 391540 validate \
+  +app_update "$APP_ID" validate \
   +quit
 
-echo "Download process complete! you can now use `--win` when defining mods"
+echo "Download process complete! You can now use `--win` when defining mods"
 exit 0

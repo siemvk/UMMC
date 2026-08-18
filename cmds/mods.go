@@ -45,7 +45,7 @@ var loadModInstallToAppRootCmdArg bool
 
 var quickPatchCmdThingy = &cobra.Command{
 	Use:   "quickpatch [filename]",
-	Short: "patch a mod onto the global undertale install",
+	Short: "patch a mod onto the global Undertale or Deltarune install",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		filename := qpFilenameCmdArg
@@ -58,10 +58,24 @@ var quickPatchCmdThingy = &cobra.Command{
 			return
 		}
 
-		targetPath := help.ExpandPath("~/Library/Application Support/Steam/steamapps/common/Undertale/UNDERTALE.app/Contents/Resources/game.ios")
+		game := "undertale"
+		chapter := 0
+		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
+			game = "undertale"
+		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
+			game = "deltarune"
+			chapter = DeltaruneCmdArg
+			if chapter <= 0 {
+				chapter = 1
+			}
+		}
+
+		appPath := help.GetDefaultAppPath(game)
+		targetPath := help.GetGameDataPath(appPath, game, chapter)
 
 		if windowsDataQuickPatchCmdArg {
-			winDataPath := help.ExpandPath("~/UMMC/windows/data.win")
+			winDataPath := help.FindWindowsDataWin(game, chapter)
+
 			if _, err := os.Stat(winDataPath); err != nil {
 				fmt.Printf("Error: Windows data file not found at %s. Did you run 'download-win'?\n", winDataPath)
 				return
@@ -77,14 +91,22 @@ var quickPatchCmdThingy = &cobra.Command{
 			fmt.Println("Using force option! Disabling checksum verification...")
 		}
 
-		fmt.Printf("Patching %s with %s...\n", targetPath, filename)
+		if game == "deltarune" {
+			fmt.Printf("Patching Deltarune Chapter %d (%s) with %s...\n", chapter, targetPath, filename)
+		} else {
+			fmt.Printf("Patching %s with %s...\n", targetPath, filename)
+		}
 
 		if err := help.PatchFileForce(targetPath, filename, forceQuickPatchCmdArg); err != nil {
-			fmt.Printf("Error patching Undertale: %v\n", err)
+			fmt.Printf("Error patching game file: %v\n", err)
 			return
 		}
 
-		fmt.Printf("Successfully patched Undertale!\n")
+		if game == "deltarune" {
+			fmt.Printf("Successfully patched Deltarune Chapter %d!\n", chapter)
+		} else {
+			fmt.Printf("Successfully patched Undertale!\n")
+		}
 	},
 }
 
@@ -107,7 +129,7 @@ var addModCmdThingy = &cobra.Command{
 		}
 
 		if folder == "" {
-			fmt.Println("Error: No mod folder specified. Provide a folder as an argument or using --folder / -d.")
+			fmt.Println("Error: No mod folder specified. Provide a folder as an argument or using --folder / -F.")
 			return
 		}
 
@@ -128,6 +150,29 @@ var addModCmdThingy = &cobra.Command{
 			if err := json.Unmarshal(data, &cfg); err == nil {
 				modCfg = &cfg
 				fmt.Println("Loaded metadata from mod_config.json")
+			}
+		}
+
+		game := "undertale"
+		chapter := 0
+		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
+			game = "undertale"
+		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
+			game = "deltarune"
+			chapter = DeltaruneCmdArg
+			if chapter <= 0 {
+				chapter = 1
+			}
+		} else if modCfg != nil && strings.Contains(strings.ToLower(modCfg.Metadata.Game), "deltarune") {
+			game = "deltarune"
+			chapter = 1
+			for _, tag := range modCfg.Metadata.Tags {
+				tLower := strings.ToLower(tag)
+				if strings.Contains(tLower, "ch2") || strings.Contains(tLower, "chapter2") || strings.Contains(tLower, "chapter 2") {
+					chapter = 2
+				} else if strings.Contains(tLower, "ch1") || strings.Contains(tLower, "chapter1") || strings.Contains(tLower, "chapter 1") {
+					chapter = 1
+				}
 			}
 		}
 
@@ -152,14 +197,16 @@ var addModCmdThingy = &cobra.Command{
 			base = modCfg.Metadata.GameVersion
 		}
 		if base == "" {
-			if createModWinCmdArg {
+			if game == "deltarune" {
+				base = fmt.Sprintf("deltarune-ch%d", chapter)
+			} else if createModWinCmdArg {
 				base = "win"
 			} else {
 				base = "1.08"
 			}
 		}
 
-		if !createModMacosCmdArg && !strings.HasSuffix(base, "-w") {
+		if (createModWinCmdArg || !createModMacosCmdArg) && !strings.HasSuffix(base, "-w") {
 			base = base + "-w"
 		}
 
@@ -187,11 +234,15 @@ var addModCmdThingy = &cobra.Command{
 			}
 		}
 
-		if _, err := help.AddMod(base, name, maker, installToAppRoot); err != nil {
+		if _, err := help.AddMod(base, name, maker, installToAppRoot, game, chapter); err != nil {
 			fmt.Printf("Warning: Created mod folder at %s but failed to save DB entry: %v\n", dstPath, err)
 		}
 
-		fmt.Printf("Successfully created mod '%s' (Maker: %s, Base: %s, InstallToAppRoot: %v)!\n", name, maker, base, installToAppRoot)
+		if game == "deltarune" {
+			fmt.Printf("Successfully created mod '%s' for Deltarune Chapter %d (Maker: %s, Base: %s, InstallToAppRoot: %v)!\n", name, chapter, maker, base, installToAppRoot)
+		} else {
+			fmt.Printf("Successfully created mod '%s' (Maker: %s, Base: %s, InstallToAppRoot: %v)!\n", name, maker, base, installToAppRoot)
+		}
 		fmt.Printf("The mod is now stored in %s so you can safely delete the folder you gave as input and the mod will continue working.\n", dstPath)
 	},
 }
@@ -206,16 +257,43 @@ var listModsCmdThingy = &cobra.Command{
 			return
 		}
 
-		fmt.Println("=== Undertale Mods ===")
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tMAKER\tBASE\tAPP ROOT")
-		fmt.Fprintln(w, "--\t----\t-----\t----\t--------")
+		filterGame := ""
+		filterChapter := DeltaruneCmdArg
+		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
+			filterGame = "undertale"
+			filterChapter = 0
+		} else if cmd.Flags().Changed("deltarune") || filterChapter > 0 {
+			filterGame = "deltarune"
+		}
 
+		fmt.Println("=== Mods Database ===")
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "ID\tGAME\tCHAPTER\tNAME\tMAKER\tBASE\tAPP ROOT")
+		fmt.Fprintln(w, "--\t----\t-------\t----\t-----\t----\t--------")
+
+		count := 0
 		for _, rec := range records {
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%t\n", rec.ID, rec.Name, rec.Maker, rec.Base, rec.InstallToAppRoot)
+			if filterGame != "" && strings.ToLower(rec.Game) != filterGame {
+				continue
+			}
+			if filterChapter > 0 && rec.Chapter != filterChapter {
+				continue
+			}
+			gameDisplay := "Undertale"
+			chDisplay := "-"
+			if strings.ToLower(rec.Game) == "deltarune" {
+				gameDisplay = "Deltarune"
+				if rec.Chapter > 0 {
+					chDisplay = fmt.Sprintf("Ch %d", rec.Chapter)
+				} else {
+					chDisplay = "Ch 1"
+				}
+			}
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%t\n", rec.ID, gameDisplay, chDisplay, rec.Name, rec.Maker, rec.Base, rec.InstallToAppRoot)
+			count++
 		}
 		w.Flush()
-		fmt.Printf("\nTotal mods: %d\n", len(records))
+		fmt.Printf("\nTotal mods listed: %d\n", count)
 	},
 }
 
@@ -226,7 +304,7 @@ var noLaunchLoadModCmdArg bool
 var LoadModCmdThingy = &cobra.Command{
 	Use:     "play [optional name or id]",
 	Aliases: []string{"load", "run", "start"},
-	Short:   "Apply a mod from database and launch Undertale",
+	Short:   "Apply a mod from database and launch game",
 	Args:    cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		nameToLoad := loadModNameCmdArg
@@ -257,12 +335,28 @@ var LoadModCmdThingy = &cobra.Command{
 			return
 		}
 
-		targetAppPath := help.ExpandPath("~/Library/Application Support/Steam/steamapps/common/Undertale/UNDERTALE.app")
+		game := rec.Game
+		chapter := rec.Chapter
+		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
+			game = "undertale"
+			chapter = 0
+		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
+			game = "deltarune"
+			if DeltaruneCmdArg > 0 {
+				chapter = DeltaruneCmdArg
+			}
+		}
+
+		if strings.ToLower(game) == "deltarune" && chapter <= 0 {
+			chapter = 1
+		}
+
+		targetAppPath := help.GetDefaultAppPath(game)
 		if _, err := os.Stat(targetAppPath); err != nil {
-			fmt.Printf("Error: Undertale app not found at %s\n", targetAppPath)
+			fmt.Printf("Error: Game app not found at %s\n", targetAppPath)
 			return
 		}
-		targetGameIosPath := filepath.Join(targetAppPath, "Contents/Resources/game.ios")
+		targetGameIosPath := help.GetGameDataPath(targetAppPath, game, chapter)
 
 		// Restore base game backup if available
 		backupRec, errBackup := help.GetBackupByVersionOrId(rec.Base, "")
@@ -279,17 +373,26 @@ var LoadModCmdThingy = &cobra.Command{
 					fmt.Printf("Warning: Failed to restore base backup: %v\n", err)
 				}
 				if strings.HasSuffix(rec.Base, "-w") {
-					winDataPath := help.ExpandPath("~/UMMC/windows/data.win")
+					winDataPath := help.FindWindowsDataWin(game, chapter)
 					if _, errStat := os.Stat(winDataPath); errStat == nil {
-						fmt.Println("Injecting Windows data.win for -w base...")
+						fmt.Printf("Injecting Windows data.win (%s) for -w base...\n", winDataPath)
 						_ = help.CopyFile(winDataPath, targetGameIosPath, true)
 						_ = os.WriteFile(filepath.Join(filepath.Dir(targetGameIosPath), "winpatchdetect"), []byte("injected"), 0644)
 					}
 				}
 			} else {
-				fmt.Printf("Notice: No backup found for base '%s'. Applying mod directly onto current Undertale install.\n", rec.Base)
+				fmt.Printf("Notice: No backup found for base '%s'. Applying mod directly onto current game install.\n", rec.Base)
+				if strings.HasSuffix(rec.Base, "-w") {
+					winDataPath := help.FindWindowsDataWin(game, chapter)
+					if _, errStat := os.Stat(winDataPath); errStat == nil {
+						fmt.Printf("Injecting Windows data.win (%s) for -w base...\n", winDataPath)
+						_ = help.CopyFile(winDataPath, targetGameIosPath, true)
+						_ = os.WriteFile(filepath.Join(filepath.Dir(targetGameIosPath), "winpatchdetect"), []byte("injected"), 0644)
+					}
+				}
 			}
 		}
+
 
 		// Check install to app root preference
 		installToAppRoot := loadModInstallToAppRootCmdArg || rec.InstallToAppRoot
@@ -314,16 +417,16 @@ var LoadModCmdThingy = &cobra.Command{
 		var destDir string
 		if installToAppRoot {
 			destDir = targetAppPath
-			fmt.Println("Installing mod files to UNDERTALE.app/ root directory...")
+			fmt.Println("Installing mod files to app root directory...")
 		} else {
-			destDir = filepath.Join(targetAppPath, "Contents/Resources")
+			destDir = help.GetGameResourceDir(targetAppPath, game, chapter)
 		}
 
 		// First: search for and apply any .xdelta patch file in the mod folder
 		for _, entry := range entries {
 			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".xdelta") {
 				patchFile := filepath.Join(modDirPath, entry.Name())
-				fmt.Printf("Applying patch '%s' to Undertale...\n", entry.Name())
+				fmt.Printf("Applying patch '%s' to game data...\n", entry.Name())
 				if err := help.PatchFileForce(targetGameIosPath, patchFile, true); err != nil {
 					fmt.Printf("Error applying mod patch: %v\n", err)
 					return
@@ -331,7 +434,7 @@ var LoadModCmdThingy = &cobra.Command{
 			}
 		}
 
-		// Second: copy all files and folders from mod directory to destination (Contents/Resources/ or app root)
+		// Second: copy all files and folders from mod directory to destination
 		for _, entry := range entries {
 			nameLower := strings.ToLower(entry.Name())
 			if strings.HasSuffix(nameLower, ".xdelta") || nameLower == "mod_config.json" {
@@ -351,8 +454,11 @@ var LoadModCmdThingy = &cobra.Command{
 			}
 		}
 
-		fmt.Printf("Successfully applied mod '%s'!\n", rec.Name)
-
+		if strings.ToLower(game) == "deltarune" {
+			fmt.Printf("Successfully applied mod '%s' for Deltarune Chapter %d!\n", rec.Name, chapter)
+		} else {
+			fmt.Printf("Successfully applied mod '%s'!\n", rec.Name)
+		}
 	},
 }
 
@@ -416,19 +522,20 @@ func init() {
 	modsCmdThingy.AddCommand(LoadModCmdThingy)
 	modsCmdThingy.AddCommand(restoreBackupCmd)
 
-	addModCmdThingy.Flags().StringVarP(&createModFolderCmdArg, "folder", "d", "", "The folder that contains all the mod data")
+	addModCmdThingy.Flags().StringVarP(&createModFolderCmdArg, "folder", "F", "", "The folder that contains all the mod data")
 	addModCmdThingy.Flags().StringVarP(&createModNameCmdArg, "name", "n", "", "The name of the mod")
 	addModCmdThingy.Flags().StringVarP(&createModMakerCmdArg, "maker", "m", "", "The author/maker of the mod")
 	addModCmdThingy.Flags().StringVarP(&createModBaseCmdArg, "base", "b", "", "The base game version/type for the mod")
 	addModCmdThingy.Flags().BoolVarP(&createModWinCmdArg, "win", "w", false, "Set base to 'win' (Windows version)")
 	addModCmdThingy.Flags().BoolVar(&createModMacosCmdArg, "macos-mod", false, "Specify that this is a macOS mod (prevents appending '-w' to base)")
 	addModCmdThingy.Flags().BoolVarP(&forceCreateModCmdArg, "force", "f", false, "Force overwrite if mod already exists")
-	addModCmdThingy.Flags().BoolVar(&createModInstallToAppRootCmdArg, "install-to-app-root", false, "Install mod files to UNDERTALE.app/ instead of Contents/Resources/")
+	addModCmdThingy.Flags().BoolVar(&createModInstallToAppRootCmdArg, "install-to-app-root", false, "Install mod files to app root instead of chapter/resources directory")
 
 	removeModCmdThingy.Flags().StringVarP(&removeModNameCmdArg, "name", "n", "", "The name of the mod to remove")
 	removeModCmdThingy.Flags().StringVarP(&removeModIdCmdArg, "id", "i", "", "The ID of the mod to remove")
 
 	LoadModCmdThingy.Flags().StringVarP(&loadModNameCmdArg, "name", "n", "", "The name of the mod to play")
 	LoadModCmdThingy.Flags().StringVarP(&loadModIdCmdArg, "id", "i", "", "The ID of the mod to play")
-	LoadModCmdThingy.Flags().BoolVar(&loadModInstallToAppRootCmdArg, "install-to-app-root", false, "Install mod files to UNDERTALE.app/ instead of Contents/Resources/")
+	LoadModCmdThingy.Flags().BoolVar(&loadModInstallToAppRootCmdArg, "install-to-app-root", false, "Install mod files to app root instead of chapter/resources directory")
 }
+
