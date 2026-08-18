@@ -98,7 +98,8 @@ Maybe custom language files?????
 - [Undertale, but you play as Sans](https://gamebanana.com/mods/514736)
 - [Undertale with a Gaster Blaster](https://gamebanana.com/mods/428457)
 - [Undertale Random Souls](https://gamebanana.com/mods/514890)
-
+- [Undertale Mouse Mod](https://gamebanana.com/mods/514892)
+- [UNDERTALE: Wind Challenge](https://gamebanana.com/mods/565434)
 
 ## Mods that sadly do not work with UMMC on macOS
 - [Undertale Together](https://www.moddb.com/mods/undertale-together) (the other versions of this mod also dont work.) (unknown why its broken)
