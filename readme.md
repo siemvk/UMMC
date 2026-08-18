@@ -14,17 +14,37 @@ UMMC is a simple tool for modding Undertale & Deltarune on macOS. It allows you 
 
 ## Installation
 
-As of now, UMMC is only tested on macOS with the steam version of the game, but it should work on linux too. 
+As of now, UMMC is tested on macOS with the steam version of the game, but it should work on Linux too.
 
-You have to build UMMC from source:
+### Quick Install
+
+Run this command in your terminal:
+```bash
+curl -fsSL https://raw.githubusercontent.com/siemvk/UMMC/main/install.sh | bash
+```
+
+Or if you have already cloned the repository locally:
+```bash
+./install.sh
+```
+
+This script will:
+- Check for required dependencies (`go`, `xdelta3`, `steamcmd`) and install any missing ones via Homebrew on macOS.
+- Build the `UMMC` binary.
+- Install `UMMC` to `~/.local/bin` (or a custom directory specified with `-b / --bin-dir`).
+
+### Manual Build
+
+If you prefer to build manually:
 ```bash
 go mod download
-go build
+go build -o UMMC .
 ```
-The non Go dependencies UMMC needs are:
-- [go](https://go.dev/doc/install) (for building UMMC) [brew install go](https://formulae.brew.sh/formula/go)
-- [steamcmd](https://developer.valvesoftware.com/wiki/SteamCMD) [brew install steamcmd](https://formulae.brew.sh/cask/steamcmd) see [this](./notes/nosteamcli.md) if you don't trust steamcmd
-- [xdelta3](https://github.com/jmacd/xdelta) (for patching the game files, needed for modding) [brew install xdelta3](https://formulae.brew.sh/formula/xdelta)
+
+The non-Go dependencies UMMC needs are:
+- [go](https://go.dev/doc/install) (for building UMMC) [`brew install go`](https://formulae.brew.sh/formula/go)
+- [steamcmd](https://developer.valvesoftware.com/wiki/SteamCMD) [`brew install --cask steamcmd`](https://formulae.brew.sh/cask/steamcmd) see [this](./notes/nosteamcli.md) if you don't trust steamcmd
+- [xdelta3](https://github.com/jmacd/xdelta) [`brew install xdelta3`](https://formulae.brew.sh/formula/xdelta)
 
 ## Usage
 
