@@ -47,6 +47,11 @@ func initSchema(db *sql.DB) error {
 		maker TEXT NOT NULL,
 		install_to_app_root INTEGER DEFAULT 0
 	);
+
+	CREATE TABLE IF NOT EXISTS saves (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		
+	);
 	`
 	if _, err := db.Exec(query); err != nil {
 		return err
@@ -229,5 +234,3 @@ func DeleteMod(id int) error {
 	_, err = db.Exec("DELETE FROM mods WHERE id = ?", id)
 	return err
 }
-
-
