@@ -30,76 +30,45 @@ var createBackupCmd = &cobra.Command{
 	Short: "Make a backup of your gamefiles (Undertale or Deltarune)",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		game := "undertale"
-		chapter := 0
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			game = "undertale"
-		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
-			game = "deltarune"
-			chapter = DeltaruneCmdArg
-			if chapter <= 0 {
-				chapter = 1
-			}
-		}
+		game, chapter := ParseGameArg(GameCmdArg, ChapterCmdArg)
+		gCfg := help.GetGameConfig(game)
 
-		var gameDir string
+		var appPath string
 		if len(args) > 0 {
-			gameDir = help.ExpandPath(args[0])
+			appPath = help.ExpandPath(args[0])
 		} else {
-			if game == "deltarune" {
-				gameDir = help.ExpandPath("~/Library/Application Support/Steam/steamapps/common/DELTARUNE/")
-			} else {
-				gameDir = help.ExpandPath("~/Library/Application Support/Steam/steamapps/common/Undertale/")
-			}
+			appPath = help.ExpandPath(gCfg.Path)
 		}
 
 		if forceCreateCmdArg {
 			fmt.Println("Using force option! Will overwrite existing backup...")
 		}
 
-		appName := "UNDERTALE.app"
-		if game == "deltarune" {
-			appName = "DELTARUNE.app"
-		}
-
-		var appPath string
-		if strings.HasSuffix(gameDir, ".app") || filepath.Base(gameDir) == appName {
-			appPath = gameDir
-		} else if _, err := os.Stat(filepath.Join(gameDir, appName)); err == nil {
-			appPath = filepath.Join(gameDir, appName)
-		} else {
-			appPath = gameDir
-		}
-
 		_, err := os.Stat(appPath)
 		if errors.Is(err, os.ErrNotExist) || err != nil {
-			fmt.Printf("Error: Game app not found at %s\nTry providing your own path.\n", appPath)
+			fmt.Printf("Error: Game app not found at %s\nTry providing your own path or updating ~/UMMC/config.json.\n", appPath)
 			return
 		}
 
 		fmt.Printf("Found game app at %s\n", appPath)
 
 		version := versionCreateCmdArg
-		if game == "deltarune" && (!cmd.Flags().Changed("version") || version == "1.08") {
-			version = fmt.Sprintf("deltarune-ch%d", chapter)
+		if !cmd.Flags().Changed("version") && gCfg.DefaultVersion != "" {
+			version = gCfg.DefaultVersion
 		}
 
-		isWinPatched := help.IsWinPatched(appPath, game, chapter)
-
-		if isWinPatched {
+		if help.IsWinPatched(appPath, game, chapter) {
 			if !strings.HasSuffix(version, "-w") {
 				version = version + "-w"
 			}
 			fmt.Println("Detected Windows data injection (winpatchdetect)! Appending '-w' to backup version.")
 		}
 
-
-		var backupDir string
-		if game == "deltarune" {
-			backupDir = help.ExpandPath(fmt.Sprintf("~/UMMC/Backup/deltarune-ch%d-%s", chapter, version))
-		} else {
-			backupDir = help.ExpandPath(fmt.Sprintf("~/UMMC/Backup/undertale%s", version))
+		backupFolder := gCfg.BackupDir
+		if backupFolder == "" {
+			backupFolder = gCfg.ID
 		}
+		backupDir := help.ExpandPath(fmt.Sprintf("~/UMMC/Backup/%s-%s", backupFolder, version))
 		dstPath := filepath.Join(backupDir, filepath.Base(appPath))
 
 		if err := help.CopyFile(appPath, dstPath, forceCreateCmdArg); err != nil {
@@ -107,15 +76,11 @@ var createBackupCmd = &cobra.Command{
 			return
 		}
 
-		if _, err := help.AddBackup(version, appPath, dstPath, game, chapter); err != nil {
+		if _, err := help.AddBackup(version, appPath, dstPath, gCfg.ID, chapter); err != nil {
 			fmt.Printf("Warning: Created backup on disk but failed to save DB entry: %v\n", err)
 		}
 
-		if game == "deltarune" {
-			fmt.Printf("Successfully backed up Deltarune Chapter %d (version %s) to %s\n", chapter, version, dstPath)
-		} else {
-			fmt.Printf("Successfully backed up Undertale version %s to %s\n", version, dstPath)
-		}
+		fmt.Printf("Successfully backed up %s (version %s) to %s\n", gCfg.Name, version, dstPath)
 	},
 }
 
@@ -127,19 +92,11 @@ var restoreBackupCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		versionToRestore := versionRestoreCmdArg
 		idToRestore := idRestoreCmdArg
-		game := "undertale"
-		chapter := 0
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			game = "undertale"
-		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
-			game = "deltarune"
-			chapter = DeltaruneCmdArg
-			if chapter <= 0 {
-				chapter = 1
-			}
-		}
+		game, chapter := ParseGameArg(GameCmdArg, ChapterCmdArg)
+		_ = chapter
+		gCfg := help.GetGameConfig(game)
 
-		targetLocation := help.GetDefaultAppPath(game)
+		targetLocation := help.ExpandPath(gCfg.Path)
 
 		if !cmd.Flags().Changed("version") && idToRestore != "" {
 			versionToRestore = ""
@@ -182,19 +139,19 @@ var restoreBackupCmd = &cobra.Command{
 			versionToRestore = rec.Version
 			game = rec.Game
 			chapter = rec.Chapter
+			gCfg = help.GetGameConfig(game)
 		} else {
 			if idToRestore != "" {
 				fmt.Printf("Warning: Backup ID %s not found in database, attempting fallback path search.\n", idToRestore)
 			}
-			var backupSrcDir string
-			if game == "deltarune" {
-				backupSrcDir = help.ExpandPath(fmt.Sprintf("~/UMMC/Backup/deltarune-ch%d-%s", chapter, versionToRestore))
-			} else {
-				backupSrcDir = help.ExpandPath(fmt.Sprintf("~/UMMC/Backup/undertale%s", versionToRestore))
+			backupFolder := gCfg.BackupDir
+			if backupFolder == "" {
+				backupFolder = gCfg.ID
 			}
-			appName := "UNDERTALE.app"
-			if game == "deltarune" {
-				appName = "DELTARUNE.app"
+			backupSrcDir := help.ExpandPath(fmt.Sprintf("~/UMMC/Backup/%s-%s", backupFolder, versionToRestore))
+			appName := filepath.Base(gCfg.Path)
+			if appName == "" || !strings.HasSuffix(appName, ".app") {
+				appName = "UNDERTALE.app"
 			}
 			if strings.HasSuffix(backupSrcDir, ".app") || filepath.Base(backupSrcDir) == appName {
 				srcAppPath = backupSrcDir
@@ -212,9 +169,9 @@ var restoreBackupCmd = &cobra.Command{
 		}
 
 		targetDir := help.ExpandPath(targetLocation)
-		appName := "UNDERTALE.app"
-		if game == "deltarune" {
-			appName = "DELTARUNE.app"
+		appName := filepath.Base(gCfg.Path)
+		if appName == "" || !strings.HasSuffix(appName, ".app") {
+			appName = "UNDERTALE.app"
 		}
 		var dstAppPath string
 		if strings.HasSuffix(targetDir, ".app") || filepath.Base(targetDir) == appName {
@@ -228,11 +185,7 @@ var restoreBackupCmd = &cobra.Command{
 			return
 		}
 
-		if game == "deltarune" {
-			fmt.Printf("Successfully restored Deltarune (Chapter %d) version %s to %s\n", chapter, versionToRestore, dstAppPath)
-		} else {
-			fmt.Printf("Successfully restored Undertale version %s to %s\n", versionToRestore, dstAppPath)
-		}
+		fmt.Printf("Successfully restored %s version %s to %s\n", gCfg.Name, versionToRestore, dstAppPath)
 	},
 }
 
@@ -247,19 +200,19 @@ var listBackupCmd = &cobra.Command{
 		}
 
 		filterGame := ""
-		filterChapter := DeltaruneCmdArg
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			filterGame = "undertale"
-			filterChapter = 0
-		} else if cmd.Flags().Changed("deltarune") || filterChapter > 0 {
+		filterChapter := 0
+		if cmd.Flags().Changed("game") || GameCmdArg != "" {
+			filterGame, filterChapter = ParseGameArg(GameCmdArg, ChapterCmdArg)
+		} else if ChapterCmdArg > 0 {
 			filterGame = "deltarune"
+			filterChapter = ChapterCmdArg
 		}
 
 
 		fmt.Println("=== Backups Database ===")
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "ID\tGAME\tCHAPTER\tVERSION\tCREATED AT\tBACKUP PATH")
-		fmt.Fprintln(w, "--\t----\t-------\t-------\t----------\t-----------")
+		fmt.Fprintln(w, "ID\tGAME\tVERSION\tCREATED AT\tBACKUP PATH")
+		fmt.Fprintln(w, "--\t----\t-------\t----------\t-----------")
 
 		count := 0
 		for _, rec := range records {
@@ -269,18 +222,11 @@ var listBackupCmd = &cobra.Command{
 			if filterChapter > 0 && rec.Chapter != filterChapter {
 				continue
 			}
-			gameDisplay := "Undertale"
-			chDisplay := "-"
-			if strings.ToLower(rec.Game) == "deltarune" {
-				gameDisplay = "Deltarune"
-				if rec.Chapter > 0 {
-					chDisplay = fmt.Sprintf("Ch %d", rec.Chapter)
-				} else {
-					chDisplay = "Ch 1"
-				}
-			}
+			gameKey, _ := help.ParseGameKey(rec.Game, rec.Chapter)
+			gCfg := help.GetGameConfig(gameKey)
+			gameDisplay := gCfg.Name
 			timeStr := rec.CreatedAt.Local().Format("2006-01-02 15:04:05")
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\n", rec.ID, gameDisplay, chDisplay, rec.Version, timeStr, rec.BackupPath)
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", rec.ID, gameDisplay, rec.Version, timeStr, rec.BackupPath)
 			count++
 		}
 		w.Flush()

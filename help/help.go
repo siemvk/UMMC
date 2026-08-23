@@ -284,12 +284,10 @@ func CopyOverlay(srcPath, dstPath string, force bool) error {
 	})
 }
 
-// GetDefaultAppPath returns the default macOS Steam app path for Undertale or Deltarune.
+// GetDefaultAppPath returns the default game app path based on ~/UMMC/config.json.
 func GetDefaultAppPath(game string) string {
-	if strings.ToLower(game) == "deltarune" {
-		return ExpandPath("~/Library/Application Support/Steam/steamapps/common/DELTARUNE/DELTARUNE.app")
-	}
-	return ExpandPath("~/Library/Application Support/Steam/steamapps/common/Undertale/UNDERTALE.app")
+	gCfg := GetGameConfig(game)
+	return ExpandPath(gCfg.Path)
 }
 
 // GetDeltaruneChapterDir returns the path to chapter directory inside DELTARUNE.app (e.g. chapter1_mac).
@@ -311,31 +309,57 @@ func GetDeltaruneChapterDir(appPath string, chapter int) string {
 
 // GetGameDataPath returns game.ios path for Undertale or Deltarune (chapter specific).
 func GetGameDataPath(appPath string, game string, chapter int) string {
-	if strings.ToLower(game) == "deltarune" {
-		return filepath.Join(GetDeltaruneChapterDir(appPath, chapter), "game.ios")
+	gameKey, ch := ParseGameKey(game, chapter)
+	gCfg := GetGameConfig(gameKey)
+
+	if gCfg.GameIOSPath != "" {
+		if strings.HasSuffix(appPath, ".app") {
+			return filepath.Join(appPath, gCfg.GameIOSPath)
+		}
+		appName := filepath.Base(gCfg.Path)
+		return filepath.Join(appPath, appName, gCfg.GameIOSPath)
+	}
+
+	if strings.HasPrefix(strings.ToLower(gameKey), "deltarune") {
+		return filepath.Join(GetDeltaruneChapterDir(appPath, ch), "game.ios")
 	}
 	return filepath.Join(appPath, "Contents/Resources/game.ios")
 }
 
 // GetGameResourceDir returns the target resource directory for mods (chapter folder for Deltarune, Contents/Resources for Undertale).
 func GetGameResourceDir(appPath string, game string, chapter int) string {
-	if strings.ToLower(game) == "deltarune" {
-		return GetDeltaruneChapterDir(appPath, chapter)
+	gameKey, ch := ParseGameKey(game, chapter)
+	gCfg := GetGameConfig(gameKey)
+
+	if gCfg.GameIOSPath != "" {
+		resFile := filepath.Join(appPath, gCfg.GameIOSPath)
+		return filepath.Dir(resFile)
+	}
+
+	if strings.HasPrefix(strings.ToLower(gameKey), "deltarune") {
+		return GetDeltaruneChapterDir(appPath, ch)
 	}
 	return filepath.Join(appPath, "Contents/Resources")
 }
 
-// FindWindowsDataWin finds the Windows data.win file for Undertale or Deltarune (chapter specific).
+// FindWindowsDataWin finds the Windows data.win file for a given game config or chapter.
 func FindWindowsDataWin(game string, chapter int) string {
-	if strings.ToLower(game) == "deltarune" {
-		if chapter <= 0 {
-			chapter = 1
+	gameKey, ch := ParseGameKey(game, chapter)
+	gCfg := GetGameConfig(gameKey)
+
+	if gCfg.DataWinPath != "" {
+		expanded := ExpandPath(gCfg.DataWinPath)
+		if _, err := os.Stat(expanded); err == nil {
+			return expanded
 		}
+	}
+
+	if strings.HasPrefix(strings.ToLower(gameKey), "deltarune") {
 		candidates := []string{
-			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d_windows/data.win", chapter)),
-			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d_win/data.win", chapter)),
-			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d/data.win", chapter)),
-			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/ch%d/data.win", chapter)),
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d_windows/data.win", ch)),
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d_win/data.win", ch)),
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/chapter%d/data.win", ch)),
+			ExpandPath(fmt.Sprintf("~/UMMC/windows/deltarune/ch%d/data.win", ch)),
 			ExpandPath("~/UMMC/windows/deltarune/data.win"),
 			ExpandPath("~/UMMC/windows/data.win"),
 		}
@@ -343,6 +367,9 @@ func FindWindowsDataWin(game string, chapter int) string {
 			if _, err := os.Stat(c); err == nil {
 				return c
 			}
+		}
+		if gCfg.DataWinPath != "" {
+			return ExpandPath(gCfg.DataWinPath)
 		}
 		return candidates[0]
 	}
@@ -356,18 +383,27 @@ func FindWindowsDataWin(game string, chapter int) string {
 			return c
 		}
 	}
+	if gCfg.DataWinPath != "" {
+		return ExpandPath(gCfg.DataWinPath)
+	}
 	return candidates[0]
 }
 
 // IsWinPatched checks if the given app path or its chapter directory contains a winpatchdetect marker.
 func IsWinPatched(appPath string, game string, chapter int) bool {
 	appPath = ExpandPath(appPath)
+	gameKey, ch := ParseGameKey(game, chapter)
+	gCfg := GetGameConfig(gameKey)
 
-	if strings.ToLower(game) == "deltarune" {
-		if chapter <= 0 {
-			chapter = 1
+	if gCfg.GameIOSPath != "" {
+		resDir := filepath.Dir(filepath.Join(appPath, gCfg.GameIOSPath))
+		if _, err := os.Stat(filepath.Join(resDir, "winpatchdetect")); err == nil {
+			return true
 		}
-		chDir := GetDeltaruneChapterDir(appPath, chapter)
+	}
+
+	if strings.HasPrefix(strings.ToLower(gameKey), "deltarune") {
+		chDir := GetDeltaruneChapterDir(appPath, ch)
 		if _, err := os.Stat(filepath.Join(chDir, "winpatchdetect")); err == nil {
 			return true
 		}

@@ -171,13 +171,47 @@ chmod +x "$INSTALL_DIR/UMMC"
 
 success "UMMC binary successfully installed to ${INSTALL_DIR}/UMMC"
 
+# Generate Shell Autocompletions
+info "Generating shell autocompletions..."
+
+# ZSH
+ZSH_COMP_DIR="$HOME/.zsh/completions"
+mkdir -p "$ZSH_COMP_DIR"
+"$INSTALL_DIR/UMMC" completion zsh > "$ZSH_COMP_DIR/_UMMC" 2>/dev/null || true
+success "zsh completion generated at ${ZSH_COMP_DIR}/_UMMC"
+
+# Bash
+BASH_COMP_DIR="$HOME/.local/share/bash-completion/completions"
+mkdir -p "$BASH_COMP_DIR"
+"$INSTALL_DIR/UMMC" completion bash > "$BASH_COMP_DIR/UMMC" 2>/dev/null || true
+success "bash completion generated at ${BASH_COMP_DIR}/UMMC"
+
+# Fish
+FISH_COMP_DIR="$HOME/.config/fish/completions"
+mkdir -p "$FISH_COMP_DIR"
+"$INSTALL_DIR/UMMC" completion fish > "$FISH_COMP_DIR/UMMC.fish" 2>/dev/null || true
+success "fish completion generated at ${FISH_COMP_DIR}/UMMC.fish"
+
+SHELL_NAME="$(basename "$SHELL")"
+if [ "$SHELL_NAME" = "zsh" ]; then
+    ZSHRC="$HOME/.zshrc"
+    if ! grep -q "\.zsh/completions" "$ZSHRC" 2>/dev/null; then
+        info "Configuring zsh autocompletions in ~/.zshrc..."
+        echo "" >> "$ZSHRC"
+        echo "# UMMC zsh autocompletions" >> "$ZSHRC"
+        echo "fpath=(~/.zsh/completions \$fpath)" >> "$ZSHRC"
+        echo "autoload -U compinit && compinit" >> "$ZSHRC"
+        success "Added zsh autocompletions to ~/.zshrc"
+    fi
+    info "Run ${CYAN}source ~/.zshrc${NC} (or open a new terminal tab) to activate autocompletion."
+fi
+
 # Check if INSTALL_DIR is in PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     warn "${INSTALL_DIR} is not currently in your PATH environment variable."
     echo ""
     echo -e "To run ${BOLD}UMMC${NC} from anywhere, add the following line to your shell configuration file:"
     
-    SHELL_NAME="$(basename "$SHELL")"
     if [ "$SHELL_NAME" = "zsh" ]; then
         echo -e "  ${CYAN}echo 'export PATH=\"$INSTALL_DIR:\$PATH\"' >> ~/.zshrc && source ~/.zshrc${NC}"
     elif [ "$SHELL_NAME" = "bash" ]; then

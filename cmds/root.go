@@ -1,13 +1,20 @@
 package cmds
 
 import (
+	"UMMC/help"
 	"os"
 
 	"github.com/spf13/cobra"
 )
 
-var DeltaruneCmdArg int
-var UndertaleCmdArg bool
+var GameCmdArg string
+var ChapterCmdArg int
+
+// ParseGameArg parses the game argument (e.g. "undertale", "deltarune-ch1", "deltarune-ch2")
+// and optional chapter argument into a clean game identifier and chapter number.
+func ParseGameArg(gameArg string, chapterArg int) (string, int) {
+	return help.ParseGameKey(gameArg, chapterArg)
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -24,6 +31,6 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().IntVarP(&DeltaruneCmdArg, "deltarune", "d", 0, "Target Deltarune chapter (e.g. 1 for Chapter 1, 2 for Chapter 2)")
-	rootCmd.PersistentFlags().BoolVarP(&UndertaleCmdArg, "undertale", "u", false, "Target Undertale")
+	rootCmd.PersistentFlags().StringVarP(&GameCmdArg, "game", "g", "", "Target game (e.g. undertale, deltarune-ch1, deltarune-ch2)")
+	rootCmd.PersistentFlags().IntVarP(&ChapterCmdArg, "chapter", "c", 0, "Target game chapter if applicable (e.g. 1, 2)")
 }

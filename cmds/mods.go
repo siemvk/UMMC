@@ -58,19 +58,10 @@ var quickPatchCmdThingy = &cobra.Command{
 			return
 		}
 
-		game := "undertale"
-		chapter := 0
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			game = "undertale"
-		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
-			game = "deltarune"
-			chapter = DeltaruneCmdArg
-			if chapter <= 0 {
-				chapter = 1
-			}
-		}
+		game, chapter := ParseGameArg(GameCmdArg, ChapterCmdArg)
+		gCfg := help.GetGameConfig(game)
 
-		appPath := help.GetDefaultAppPath(game)
+		appPath := help.ExpandPath(gCfg.Path)
 		targetPath := help.GetGameDataPath(appPath, game, chapter)
 
 		if windowsDataQuickPatchCmdArg {
@@ -91,22 +82,14 @@ var quickPatchCmdThingy = &cobra.Command{
 			fmt.Println("Using force option! Disabling checksum verification...")
 		}
 
-		if game == "deltarune" {
-			fmt.Printf("Patching Deltarune Chapter %d (%s) with %s...\n", chapter, targetPath, filename)
-		} else {
-			fmt.Printf("Patching %s with %s...\n", targetPath, filename)
-		}
+		fmt.Printf("Patching %s (%s) with %s...\n", gCfg.Name, targetPath, filename)
 
 		if err := help.PatchFileForce(targetPath, filename, forceQuickPatchCmdArg); err != nil {
 			fmt.Printf("Error patching game file: %v\n", err)
 			return
 		}
 
-		if game == "deltarune" {
-			fmt.Printf("Successfully patched Deltarune Chapter %d!\n", chapter)
-		} else {
-			fmt.Printf("Successfully patched Undertale!\n")
-		}
+		fmt.Printf("Successfully patched %s!\n", gCfg.Name)
 	},
 }
 
@@ -153,16 +136,10 @@ var addModCmdThingy = &cobra.Command{
 			}
 		}
 
-		game := "undertale"
-		chapter := 0
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			game = "undertale"
-		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
-			game = "deltarune"
-			chapter = DeltaruneCmdArg
-			if chapter <= 0 {
-				chapter = 1
-			}
+		var game string
+		var chapter int
+		if cmd.Flags().Changed("game") || GameCmdArg != "" || ChapterCmdArg > 0 {
+			game, chapter = ParseGameArg(GameCmdArg, ChapterCmdArg)
 		} else if modCfg != nil && strings.Contains(strings.ToLower(modCfg.Metadata.Game), "deltarune") {
 			game = "deltarune"
 			chapter = 1
@@ -174,7 +151,11 @@ var addModCmdThingy = &cobra.Command{
 					chapter = 1
 				}
 			}
+		} else {
+			game, chapter = ParseGameArg("", ChapterCmdArg)
 		}
+
+		gCfg := help.GetGameConfig(game)
 
 		name := createModNameCmdArg
 		if name == "" && modCfg != nil && modCfg.Metadata.Name != "" {
@@ -197,11 +178,8 @@ var addModCmdThingy = &cobra.Command{
 			base = modCfg.Metadata.GameVersion
 		}
 		if base == "" {
-			if game == "deltarune" {
-				base = fmt.Sprintf("deltarune-ch%d", chapter)
-			} else if createModWinCmdArg {
-				base = "win"
-			} else {
+			base = gCfg.DefaultVersion
+			if base == "" {
 				base = "1.08"
 			}
 		}
@@ -234,15 +212,11 @@ var addModCmdThingy = &cobra.Command{
 			}
 		}
 
-		if _, err := help.AddMod(base, name, maker, installToAppRoot, game, chapter); err != nil {
+		if _, err := help.AddMod(base, name, maker, installToAppRoot, gCfg.ID, chapter); err != nil {
 			fmt.Printf("Warning: Created mod folder at %s but failed to save DB entry: %v\n", dstPath, err)
 		}
 
-		if game == "deltarune" {
-			fmt.Printf("Successfully created mod '%s' for Deltarune Chapter %d (Maker: %s, Base: %s, InstallToAppRoot: %v)!\n", name, chapter, maker, base, installToAppRoot)
-		} else {
-			fmt.Printf("Successfully created mod '%s' (Maker: %s, Base: %s, InstallToAppRoot: %v)!\n", name, maker, base, installToAppRoot)
-		}
+		fmt.Printf("Successfully created mod '%s' for %s (Maker: %s, Base: %s, InstallToAppRoot: %v)!\n", name, gCfg.Name, maker, base, installToAppRoot)
 		fmt.Printf("The mod is now stored in %s so you can safely delete the folder you gave as input and the mod will continue working.\n", dstPath)
 	},
 }
@@ -258,18 +232,18 @@ var listModsCmdThingy = &cobra.Command{
 		}
 
 		filterGame := ""
-		filterChapter := DeltaruneCmdArg
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			filterGame = "undertale"
-			filterChapter = 0
-		} else if cmd.Flags().Changed("deltarune") || filterChapter > 0 {
+		filterChapter := 0
+		if cmd.Flags().Changed("game") || GameCmdArg != "" {
+			filterGame, filterChapter = ParseGameArg(GameCmdArg, ChapterCmdArg)
+		} else if ChapterCmdArg > 0 {
 			filterGame = "deltarune"
+			filterChapter = ChapterCmdArg
 		}
 
 		fmt.Println("=== Mods Database ===")
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "ID\tGAME\tCHAPTER\tNAME\tMAKER\tBASE\tAPP ROOT")
-		fmt.Fprintln(w, "--\t----\t-------\t----\t-----\t----\t--------")
+		fmt.Fprintln(w, "ID\tGAME\tNAME\tMAKER\tBASE\tAPP ROOT")
+		fmt.Fprintln(w, "--\t----\t----\t-----\t----\t--------")
 
 		count := 0
 		for _, rec := range records {
@@ -279,17 +253,10 @@ var listModsCmdThingy = &cobra.Command{
 			if filterChapter > 0 && rec.Chapter != filterChapter {
 				continue
 			}
-			gameDisplay := "Undertale"
-			chDisplay := "-"
-			if strings.ToLower(rec.Game) == "deltarune" {
-				gameDisplay = "Deltarune"
-				if rec.Chapter > 0 {
-					chDisplay = fmt.Sprintf("Ch %d", rec.Chapter)
-				} else {
-					chDisplay = "Ch 1"
-				}
-			}
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%t\n", rec.ID, gameDisplay, chDisplay, rec.Name, rec.Maker, rec.Base, rec.InstallToAppRoot)
+			gameKey, _ := help.ParseGameKey(rec.Game, rec.Chapter)
+			gCfg := help.GetGameConfig(gameKey)
+			gameDisplay := gCfg.Name
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%t\n", rec.ID, gameDisplay, rec.Name, rec.Maker, rec.Base, rec.InstallToAppRoot)
 			count++
 		}
 		w.Flush()
@@ -337,14 +304,10 @@ var LoadModCmdThingy = &cobra.Command{
 
 		game := rec.Game
 		chapter := rec.Chapter
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			game = "undertale"
-			chapter = 0
-		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
-			game = "deltarune"
-			if DeltaruneCmdArg > 0 {
-				chapter = DeltaruneCmdArg
-			}
+		if cmd.Flags().Changed("game") || GameCmdArg != "" {
+			game, chapter = ParseGameArg(GameCmdArg, ChapterCmdArg)
+		} else if ChapterCmdArg > 0 {
+			chapter = ChapterCmdArg
 		}
 
 		if strings.ToLower(game) == "deltarune" && chapter <= 0 {
@@ -454,11 +417,8 @@ var LoadModCmdThingy = &cobra.Command{
 			}
 		}
 
-		if strings.ToLower(game) == "deltarune" {
-			fmt.Printf("Successfully applied mod '%s' for Deltarune Chapter %d!\n", rec.Name, chapter)
-		} else {
-			fmt.Printf("Successfully applied mod '%s'!\n", rec.Name)
-		}
+		gCfg := help.GetGameConfig(game)
+		fmt.Printf("Successfully applied mod '%s' for %s!\n", rec.Name, gCfg.Name)
 	},
 }
 

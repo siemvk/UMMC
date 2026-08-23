@@ -27,20 +27,14 @@ var downloadWinCmdThingy = &cobra.Command{
 			username = args[0]
 		}
 
-		game := "undertale"
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			game = "undertale"
-		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
-			game = "deltarune"
-		}
+		game, _ := ParseGameArg(GameCmdArg, ChapterCmdArg)
+		gCfg := help.GetGameConfig(game)
 
-		appID := "391540"
-		targetDir := help.ExpandPath("~/UMMC/windows/")
-		gameName := "Undertale"
-		if game == "deltarune" {
-			appID = "1671210"
-			targetDir = help.ExpandPath("~/UMMC/windows/deltarune/")
-			gameName = "Deltarune"
+		appID := gCfg.SteamID
+		gameName := gCfg.Name
+		targetDir := help.ExpandPath(fmt.Sprintf("~/UMMC/windows/%s/", gCfg.ID))
+		if game == "undertale" {
+			targetDir = help.ExpandPath("~/UMMC/windows/")
 		}
 
 		scriptPath := "cmds/windown.sh"
@@ -88,17 +82,8 @@ var makeWinMacVer = &cobra.Command{
 	Short: "Inject the Windows data.win into your macOS build of Undertale or Deltarune as game.ios",
 	Args:  cobra.MaximumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		game := "undertale"
-		chapter := 0
-		if cmd.Flags().Changed("undertale") || UndertaleCmdArg {
-			game = "undertale"
-		} else if cmd.Flags().Changed("deltarune") || DeltaruneCmdArg > 0 {
-			game = "deltarune"
-			chapter = DeltaruneCmdArg
-			if chapter <= 0 {
-				chapter = 1
-			}
-		}
+		game, chapter := ParseGameArg(GameCmdArg, ChapterCmdArg)
+		gCfg := help.GetGameConfig(game)
 
 		var winDataPath string
 		if len(args) > 0 {
@@ -108,12 +93,11 @@ var makeWinMacVer = &cobra.Command{
 		}
 
 		if _, err := os.Stat(winDataPath); os.IsNotExist(err) {
-			fmt.Printf("Error: Windows data file not found at %s. Did you run 'UMMC download-win'?\n", winDataPath)
+			fmt.Printf("Error: Windows data file not found at %s. Did you run 'UMMC download-win -g %s'?\n", winDataPath, gCfg.ID)
 			return
 		}
 
-
-		defaultApp := help.GetDefaultAppPath(game)
+		defaultApp := help.ExpandPath(gCfg.Path)
 		targetPath := help.GetGameDataPath(defaultApp, game, chapter)
 
 		if len(args) > 1 {
@@ -123,9 +107,9 @@ var makeWinMacVer = &cobra.Command{
 			} else if strings.HasSuffix(target, ".app") {
 				targetPath = help.GetGameDataPath(target, game, chapter)
 			} else {
-				appName := "UNDERTALE.app"
-				if game == "deltarune" {
-					appName = "DELTARUNE.app"
+				appName := filepath.Base(gCfg.Path)
+				if appName == "" || !strings.HasSuffix(appName, ".app") {
+					appName = "UNDERTALE.app"
 				}
 				targetPath = help.GetGameDataPath(filepath.Join(target, appName), game, chapter)
 			}
@@ -142,13 +126,8 @@ var makeWinMacVer = &cobra.Command{
 			fmt.Printf("Warning: Failed to create winpatchdetect marker file at %s: %v\n", markerPath, err)
 		}
 
-		if game == "deltarune" {
-			fmt.Printf("Successfully injected Windows data.win into macOS Deltarune Chapter %d as game.ios!\n", chapter)
-			fmt.Printf("Recommendation: Run 'UMMC backup create -d %d' to create a backup of this injected build.\n", chapter)
-		} else {
-			fmt.Printf("Successfully injected Windows data.win into macOS Undertale as game.ios!\n")
-			fmt.Println("Recommendation: Run 'UMMC backup create' to create a backup of this injected Windows build.")
-		}
+		fmt.Printf("Successfully injected Windows data.win into macOS %s as game.ios!\n", gCfg.Name)
+		fmt.Printf("Recommendation: Run 'UMMC backup create -g %s' to create a backup of this injected build.\n", gCfg.ID)
 	},
 }
 

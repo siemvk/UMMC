@@ -6,9 +6,9 @@ UMMC is a simple tool for modding Undertale & Deltarune on macOS. It allows you 
 > The deltarune support is not great yet, for example, it does not yet support modding the full game, only the chapters. If you want to mod the full game, you can use UMMC to mod each chapter separately for now.
 
 ## Features
-- Making backups of the original game files (Undertale & Deltarune per chapter)
-- Deltarune support with chapter selection (`--deltarune 1`, `-d 2`, etc.)
-- (Planned) Manage save files
+- Configuration-based setup stored in `~/UMMC/config.json` (game path, steamid, name, cover art)
+- Target game selection via `-g` / `--game` (e.g. `-g undertale`, `-g deltarune`, `-g deltarune-ch2`)
+- Making backups of original game files (Undertale & Deltarune per chapter)
 - Install mods to Undertale and Deltarune chapters
 - Download Windows versions of Undertale or Deltarune via SteamCMD easily
 
@@ -48,15 +48,17 @@ The non-Go dependencies UMMC needs are:
 
 ## Usage
 
+Target a game using `-g` or `--game` (e.g. `-g undertale`, `-g deltarune`, or `-g deltarune-ch2`).
+
 ### Undertale
 After you have installed UMMC, make an initial backup of your game files:
 ```bash
-UMMC backup create
+UMMC backup create -g undertale
 ```
 Download Windows version (if modding with Windows `data.win`):
 ```bash
-UMMC download-win -u <your steam username>
-UMMC inject
+UMMC download-win -U <your steam username> -g undertale
+UMMC inject -g undertale
 ```
 see [this](./notes/nosteamcli.md) if you don't trust steamcmd or my program with your steam credentials.
 > [!TIP]
@@ -64,43 +66,43 @@ see [this](./notes/nosteamcli.md) if you don't trust steamcmd or my program with
 
 Add and play Undertale mods:
 ```bash
-UMMC mods create <path to mod>
-UMMC mods play <mod name or id>
+UMMC mods create <path to mod> -g undertale
+UMMC mods play <mod name or id> -g undertale
 ```
 
 ### Deltarune Support
-UMMC fully supports Deltarune with chapter-specific modding. Use `--deltarune <chapter>` or `-d <chapter>`:
+UMMC fully supports Deltarune with chapter-specific modding. Use `-g deltarune` or `-g deltarune-ch<chapter>` (or `-g deltarune -c <chapter>`):
 
 - **Create a Deltarune Backup**:
   ```bash
-  UMMC backup create --deltarune 1
-  UMMC backup create -d 2
+  UMMC backup create -g deltarune-ch1
+  UMMC backup create -g deltarune -c 2
   ```
 
 - **Add a Deltarune Mod**:
   ```bash
-  UMMC mods create <path to mod> --deltarune 1
-  UMMC mods create <path to mod> -d 5
+  UMMC mods create <path to mod> -g deltarune-ch1
+  UMMC mods create <path to mod> -g deltarune -c 2
   ```
 
 - **List Mods or Backups (Filtered by Game)**:
   ```bash
-  UMMC mods list --undertale  # or -u
-  UMMC mods list --deltarune  # or -d
-  UMMC backup list -u
-  UMMC backup list -d 2
+  UMMC mods list -g undertale
+  UMMC mods list -g deltarune
+  UMMC backup list -g undertale
+  UMMC backup list -g deltarune -c 2
   ```
 
 - **Play a Deltarune Mod**:
   ```bash
   UMMC mods play <mod name or id>
   ```
-  *(UMMC automatically detects the chapter from the database!)*
+  *(UMMC automatically detects the game and chapter from the database!)*
 
 - **Download Deltarune Windows via SteamCMD & Inject**:
   ```bash
-  UMMC download-win -U <username> --deltarune
-  UMMC inject --deltarune 1
+  UMMC download-win -U <username> -g deltarune
+  UMMC inject -g deltarune-ch1
   ```
 
 > [!TIP]
