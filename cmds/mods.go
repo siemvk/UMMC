@@ -3,6 +3,7 @@ package cmds
 import (
 	"UMMC/help"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,64 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+type ModXmlPatch struct {
+	Type  string `xml:"type,attr"`
+	Patch string `xml:"patch,attr"`
+	To    string `xml:"to,attr"`
+}
+
+func ParseModdingXml(xmlPath string) ([]ModXmlPatch, error) {
+	data, err := os.ReadFile(xmlPath)
+	if err != nil {
+		return nil, err
+	}
+
+	wrapped := append([]byte("<patches>"), data...)
+	wrapped = append(wrapped, []byte("</patches>")...)
+
+	type PatchesContainer struct {
+		Patches []ModXmlPatch `xml:"patch"`
+	}
+
+	var container PatchesContainer
+	if err := xml.Unmarshal(wrapped, &container); err != nil {
+		return nil, err
+	}
+
+	return container.Patches, nil
+}
+
+func ResolveGameKeyFromTarget(toPath string) (string, int) {
+	toLower := strings.ToLower(toPath)
+	if strings.Contains(toLower, "main data") || strings.Contains(toLower, "main") || strings.Contains(toLower, "menu") || strings.Contains(toLower, "mus") || strings.Contains(toLower, "music") {
+		return "deltarune-mus", 0
+	}
+	if strings.Contains(toLower, "ch1") || strings.Contains(toLower, "chapter1") || strings.Contains(toLower, "chapter 1") {
+		return "deltarune-ch1", 1
+	}
+	if strings.Contains(toLower, "ch2") || strings.Contains(toLower, "chapter2") || strings.Contains(toLower, "chapter 2") {
+		return "deltarune-ch2", 2
+	}
+	if strings.Contains(toLower, "ch3") || strings.Contains(toLower, "chapter3") || strings.Contains(toLower, "chapter 3") {
+		return "deltarune-ch3", 3
+	}
+	if strings.Contains(toLower, "ch4") || strings.Contains(toLower, "chapter4") || strings.Contains(toLower, "chapter 4") {
+		return "deltarune-ch4", 4
+	}
+	if strings.Contains(toLower, "ch5") || strings.Contains(toLower, "chapter5") || strings.Contains(toLower, "chapter 5") {
+		return "deltarune-ch5", 5
+	}
+	if strings.Contains(toLower, "deltarune") {
+		return "deltarune-ch1", 1
+	}
+	return "undertale", 0
+}
+
+func IsTargetDirectory(dirName string) bool {
+	toLower := strings.ToLower(dirName)
+	return strings.Contains(toLower, "chapter") || strings.Contains(toLower, "ch") || strings.Contains(toLower, "main") || strings.Contains(toLower, "mus") || strings.Contains(toLower, "music") || strings.Contains(toLower, "menu")
+}
 
 type ModConfig struct {
 	ConfigVersion string `json:"config_version"`
@@ -136,19 +195,66 @@ var addModCmdThingy = &cobra.Command{
 			}
 		}
 
+		var dInfoMetaName string
+		var dInfoMetaAuthor string
+		deltaModPath := filepath.Join(folderPath, "_deltamodinfo.json")
+		if data, err := os.ReadFile(deltaModPath); err == nil {
+			var dInfo struct {
+				Metadata struct {
+					Name   string      `json:"name"`
+					Author interface{} `json:"author"`
+				} `json:"metadata"`
+			}
+			if err := json.Unmarshal(data, &dInfo); err == nil {
+				if dInfo.Metadata.Name != "" {
+					dInfoMetaName = dInfo.Metadata.Name
+					fmt.Printf("Loaded metadata name '%s' from _deltamodinfo.json\n", dInfoMetaName)
+				}
+				if authorStr, ok := dInfo.Metadata.Author.(string); ok && authorStr != "" {
+					dInfoMetaAuthor = authorStr
+				} else if authorSlice, ok := dInfo.Metadata.Author.([]interface{}); ok && len(authorSlice) > 0 {
+					var authors []string
+					for _, a := range authorSlice {
+						if s, ok := a.(string); ok {
+							authors = append(authors, s)
+						}
+					}
+					dInfoMetaAuthor = strings.Join(authors, ", ")
+				}
+			}
+		}
+
+		hasModdingXml := false
+		xmlPath := filepath.Join(folderPath, "modding.xml")
+		if _, err := os.Stat(xmlPath); err == nil {
+			hasModdingXml = true
+			fmt.Println("Detected modding.xml manifest")
+		}
+
+		hasTargetSubdirs := false
+		folderEntries, _ := os.ReadDir(folderPath)
+		for _, fe := range folderEntries {
+			if fe.IsDir() && IsTargetDirectory(fe.Name()) {
+				hasTargetSubdirs = true
+				break
+			}
+		}
+
 		var game string
 		var chapter int
 		if cmd.Flags().Changed("game") || GameCmdArg != "" || ChapterCmdArg > 0 {
 			game, chapter = ParseGameArg(GameCmdArg, ChapterCmdArg)
+		} else if hasModdingXml || hasTargetSubdirs {
+			game = "deltarune-ch1"
+			chapter = 1
 		} else if modCfg != nil && strings.Contains(strings.ToLower(modCfg.Metadata.Game), "deltarune") {
-			game = "deltarune"
+			game = "deltarune-ch1"
 			chapter = 1
 			for _, tag := range modCfg.Metadata.Tags {
 				tLower := strings.ToLower(tag)
 				if strings.Contains(tLower, "ch2") || strings.Contains(tLower, "chapter2") || strings.Contains(tLower, "chapter 2") {
+					game = "deltarune-ch2"
 					chapter = 2
-				} else if strings.Contains(tLower, "ch1") || strings.Contains(tLower, "chapter1") || strings.Contains(tLower, "chapter 1") {
-					chapter = 1
 				}
 			}
 		} else {
@@ -161,6 +267,9 @@ var addModCmdThingy = &cobra.Command{
 		if name == "" && modCfg != nil && modCfg.Metadata.Name != "" {
 			name = modCfg.Metadata.Name
 		}
+		if name == "" && dInfoMetaName != "" {
+			name = dInfoMetaName
+		}
 		if name == "" {
 			name = filepath.Base(folderPath)
 		}
@@ -168,6 +277,9 @@ var addModCmdThingy = &cobra.Command{
 		maker := createModMakerCmdArg
 		if maker == "" && modCfg != nil && modCfg.Metadata.Author != "" {
 			maker = modCfg.Metadata.Author
+		}
+		if maker == "" && dInfoMetaAuthor != "" {
+			maker = dInfoMetaAuthor
 		}
 		if maker == "" {
 			maker = "Unknown"
@@ -385,22 +497,96 @@ var LoadModCmdThingy = &cobra.Command{
 			destDir = help.GetGameResourceDir(targetAppPath, game, chapter)
 		}
 
-		// First: search for and apply any .xdelta patch file in the mod folder
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".xdelta") {
-				patchFile := filepath.Join(modDirPath, entry.Name())
-				fmt.Printf("Applying patch '%s' to game data...\n", entry.Name())
-				if err := help.PatchFileForce(targetGameIosPath, patchFile, true); err != nil {
-					fmt.Printf("Error applying mod patch: %v\n", err)
-					return
+		handledSubdirs := make(map[string]bool)
+
+		xmlPath := filepath.Join(modDirPath, "modding.xml")
+		if _, errXml := os.Stat(xmlPath); errXml == nil {
+			fmt.Println("Found modding.xml manifest, processing patch mappings...")
+			patches, errParse := ParseModdingXml(xmlPath)
+			if errParse != nil {
+				fmt.Printf("Warning: Failed to parse modding.xml: %v\n", errParse)
+			} else {
+				for _, p := range patches {
+					if p.Patch == "" || p.To == "" {
+						continue
+					}
+					patchRelative := filepath.Clean(p.Patch)
+					patchFile := filepath.Join(modDirPath, patchRelative)
+					targetGameKey, targetCh := ResolveGameKeyFromTarget(p.To)
+					targetDataPath := help.GetGameDataPath(targetAppPath, targetGameKey, targetCh)
+
+					if _, errStat := os.Stat(targetDataPath); os.IsNotExist(errStat) {
+						fmt.Printf("Notice: Skipping %s patch '%s' because target data file does not exist at %s\n", targetGameKey, patchRelative, targetDataPath)
+						continue
+					}
+
+					fmt.Printf("Applying XML patch '%s' -> %s (%s)...\n", patchRelative, targetGameKey, targetDataPath)
+					if err := help.PatchFileForce(targetDataPath, patchFile, true); err != nil {
+						fmt.Printf("Warning: Patch %s failed: %v\n", patchRelative, err)
+					}
+				}
+			}
+		} else {
+			// First: search for and process target subfolders (e.g. "Chapter 1", "Chapter 2", "main data", "mus")
+			for _, entry := range entries {
+				if entry.IsDir() {
+					nameLower := strings.ToLower(entry.Name())
+					if IsTargetDirectory(nameLower) {
+						handledSubdirs[entry.Name()] = true
+						targetGameKey, targetCh := ResolveGameKeyFromTarget(entry.Name())
+						subDirPath := filepath.Join(modDirPath, entry.Name())
+						subEntries, errSub := os.ReadDir(subDirPath)
+						if errSub != nil {
+							continue
+						}
+
+						targetDataPath := help.GetGameDataPath(targetAppPath, targetGameKey, targetCh)
+						targetResDir := help.GetGameResourceDir(targetAppPath, targetGameKey, targetCh)
+
+						for _, subEntry := range subEntries {
+							subNameLower := strings.ToLower(subEntry.Name())
+							srcFile := filepath.Join(subDirPath, subEntry.Name())
+							if strings.HasSuffix(subNameLower, ".xdelta") {
+								if _, errStat := os.Stat(targetDataPath); os.IsNotExist(errStat) {
+									fmt.Printf("Notice: Skipping %s patch '%s' because target data file does not exist at %s\n", targetGameKey, subEntry.Name(), targetDataPath)
+									continue
+								}
+								fmt.Printf("Applying folder patch '%s/%s' -> %s (%s)...\n", entry.Name(), subEntry.Name(), targetGameKey, targetDataPath)
+								if err := help.PatchFileForce(targetDataPath, srcFile, true); err != nil {
+									fmt.Printf("Warning: Patch %s/%s failed: %v\n", entry.Name(), subEntry.Name(), err)
+								}
+							} else {
+								var dstFile string
+								if subNameLower == "data.win" {
+									dstFile = targetDataPath
+								} else {
+									dstFile = filepath.Join(targetResDir, subEntry.Name())
+								}
+								fmt.Printf("Copying folder overlay '%s/%s' -> %s...\n", entry.Name(), subEntry.Name(), dstFile)
+								if err := help.CopyOverlay(srcFile, dstFile, true); err != nil {
+									fmt.Printf("Warning: Failed to copy %s/%s: %v\n", entry.Name(), subEntry.Name(), err)
+								}
+							}
+						}
+					}
+				} else if strings.HasSuffix(strings.ToLower(entry.Name()), ".xdelta") {
+					patchFile := filepath.Join(modDirPath, entry.Name())
+					fmt.Printf("Applying root patch '%s' to game data...\n", entry.Name())
+					if err := help.PatchFileForce(targetGameIosPath, patchFile, true); err != nil {
+						fmt.Printf("Error applying mod patch: %v\n", err)
+						return
+					}
 				}
 			}
 		}
 
-		// Second: copy all files and folders from mod directory to destination
+		// Second: copy all non-metadata files and unhandled folders from mod directory to destination
 		for _, entry := range entries {
+			if handledSubdirs[entry.Name()] {
+				continue
+			}
 			nameLower := strings.ToLower(entry.Name())
-			if strings.HasSuffix(nameLower, ".xdelta") || nameLower == "mod_config.json" {
+			if strings.HasSuffix(nameLower, ".xdelta") || nameLower == "mod_config.json" || nameLower == "_deltamodinfo.json" || nameLower == "modding.xml" || nameLower == "_icon.png" || nameLower == "data_patches" || nameLower == "readme.txt" || nameLower == ".ds_store" {
 				continue
 			}
 
