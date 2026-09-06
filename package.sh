@@ -7,8 +7,30 @@ cd "$SCRIPT_DIR"
 
 APP_NAME="UMMC"
 BUNDLE_ID="com.siemvk.UMMC"
-VERSION="${1:-1.0.0}"
-OUTPUT_DIR="${2:-.}"
+VERSION="1.0.0"
+OUTPUT_DIR="."
+BUILD_UNIVERSAL=1
+
+# Parse arguments
+for arg in "$@"; do
+    case "$arg" in
+        --native)
+            BUILD_UNIVERSAL=0
+            ;;
+        --universal)
+            BUILD_UNIVERSAL=1
+            ;;
+        *)
+            if [ -z "${VERSION_SET:-}" ]; then
+                VERSION="$arg"
+                VERSION_SET=1
+            else
+                OUTPUT_DIR="$arg"
+            fi
+            ;;
+    esac
+done
+
 APP_BUNDLE="$OUTPUT_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_BUNDLE/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -26,9 +48,20 @@ fi
 rm -rf "$APP_BUNDLE"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
-# 3. Build Go executable
-echo "==> Building Go binary..."
-go build -ldflags="-s -w" -o "$MACOS_DIR/$APP_NAME" .
+# 3. Build Go executable (Universal binary via lipo for Apple Silicon + Intel)
+if [ "$BUILD_UNIVERSAL" -eq 1 ] && command -v lipo >/dev/null 2>&1; then
+    echo "==> Building Universal Mach-O binary (arm64 + amd64) with lipo..."
+    BUILD_TEMP="$(mktemp -d -t ummc_build_XXXXXX)"
+    
+    CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "$BUILD_TEMP/UMMC_arm64" .
+    CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "$BUILD_TEMP/UMMC_amd64" .
+    
+    lipo -create -output "$MACOS_DIR/$APP_NAME" "$BUILD_TEMP/UMMC_arm64" "$BUILD_TEMP/UMMC_amd64"
+    rm -rf "$BUILD_TEMP"
+else
+    echo "==> Building native Go binary..."
+    go build -ldflags="-s -w" -o "$MACOS_DIR/$APP_NAME" .
+fi
 chmod +x "$MACOS_DIR/$APP_NAME"
 
 # 4. Generate App Icon
@@ -110,4 +143,5 @@ if command -v codesign >/dev/null 2>&1; then
 fi
 
 echo "==> Successfully created: $APP_BUNDLE"
+lipo -info "$MACOS_DIR/$APP_NAME" 2>/dev/null || file "$MACOS_DIR/$APP_NAME"
 echo "    Run it with: open \"$APP_BUNDLE\""
