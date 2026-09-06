@@ -1,0 +1,47 @@
+{
+  "fill" : {
+    "automatic-gradient" : "srgb:0.35967,0.00000,0.00000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "Image.png",
+          "name" : "Image",
+          "position" : {
+            "scale" : 0.6,
+            "translation-in-points" : [
+              0,
+              -104.03125
+            ]
+          }
+        },
+        {
+          "image-name" : "UMMC.svg",
+          "name" : "UMMC",
+          "position" : {
+            "scale" : 19,
+            "translation-in-points" : [
+              6.94640000000004,
+              298.03125
+            ]
+          }
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.5
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.5
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "circles" : [
+      "watchOS"
+    ],
+    "squares" : "shared"
+  }
+}

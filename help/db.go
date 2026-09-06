@@ -44,11 +44,21 @@ func initSchema(db *sql.DB) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		base TEXT NOT NULL,
 		name TEXT NOT NULL,
-		maker TEXT NOT NULL
+		maker TEXT NOT NULL,
+		use_vanilla_saves INTEGER DEFAULT 0,
+		install_to_app_root INTEGER DEFAULT 0,
+		use_butterscotch INTEGER DEFAULT 0
 	);
 	`
 	_, err := db.Exec(query)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migrations for existing tables
+	_, _ = db.Exec("ALTER TABLE mods ADD COLUMN use_vanilla_saves INTEGER DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE mods ADD COLUMN install_to_app_root INTEGER DEFAULT 0")
+	_, _ = db.Exec("ALTER TABLE mods ADD COLUMN use_butterscotch INTEGER DEFAULT 0")
+	return nil
 }
 
 type BackupRecord struct {
@@ -115,21 +125,37 @@ func GetBackups() ([]BackupRecord, error) {
 }
 
 type ModRecord struct {
-	ID    int    `json:"id"`
-	Base  string `json:"base"`
-	Name  string `json:"name"`
-	Maker string `json:"maker"`
+	ID               int    `json:"id"`
+	Base             string `json:"base"`
+	Name             string `json:"name"`
+	Maker            string `json:"maker"`
+	UseVanillaSaves  bool   `json:"use_vanilla_saves"`
+	InstallToAppRoot bool   `json:"install_to_app_root"`
+	UseButterscotch  bool   `json:"use_butterscotch"`
 }
 
 // AddMod inserts a new mod record into the database and returns the generated ID.
-func AddMod(base, name, maker string) (int64, error) {
+func AddMod(base, name, maker string, useVanillaSaves, installToAppRoot, useButterscotch bool) (int64, error) {
 	db, err := GetDB()
 	if err != nil {
 		return 0, err
 	}
 	defer db.Close()
 
-	res, err := db.Exec("INSERT INTO mods (base, name, maker) VALUES (?, ?, ?)", base, name, maker)
+	vanillaSavesInt := 0
+	if useVanillaSaves {
+		vanillaSavesInt = 1
+	}
+	rootModeInt := 0
+	if installToAppRoot {
+		rootModeInt = 1
+	}
+	butterscotchInt := 0
+	if useButterscotch {
+		butterscotchInt = 1
+	}
+
+	res, err := db.Exec("INSERT INTO mods (base, name, maker, use_vanilla_saves, install_to_app_root, use_butterscotch) VALUES (?, ?, ?, ?, ?, ?)", base, name, maker, vanillaSavesInt, rootModeInt, butterscotchInt)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert mod into database: %w", err)
 	}
@@ -145,7 +171,7 @@ func GetMods() ([]ModRecord, error) {
 	}
 	defer db.Close()
 
-	query := `SELECT id, base, name, maker FROM mods ORDER BY id DESC`
+	query := `SELECT id, base, name, maker, COALESCE(use_vanilla_saves, 0), COALESCE(install_to_app_root, 0), COALESCE(use_butterscotch, 0) FROM mods ORDER BY id DESC`
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -155,9 +181,13 @@ func GetMods() ([]ModRecord, error) {
 	var records []ModRecord
 	for rows.Next() {
 		var rec ModRecord
-		if err := rows.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker); err != nil {
+		var vanillaSavesInt, rootModeInt, butterscotchInt int
+		if err := rows.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &vanillaSavesInt, &rootModeInt, &butterscotchInt); err != nil {
 			continue
 		}
+		rec.UseVanillaSaves = (vanillaSavesInt != 0)
+		rec.InstallToAppRoot = (rootModeInt != 0)
+		rec.UseButterscotch = (butterscotchInt != 0)
 		records = append(records, rec)
 	}
 	return records, nil
@@ -187,10 +217,10 @@ func GetModByNameOrId(name string, id string) (*ModRecord, error) {
 	var arg interface{}
 
 	if id != "" {
-		query = `SELECT id, base, name, maker FROM mods WHERE id = ? LIMIT 1`
+		query = `SELECT id, base, name, maker, COALESCE(use_vanilla_saves, 0), COALESCE(install_to_app_root, 0), COALESCE(use_butterscotch, 0) FROM mods WHERE id = ? LIMIT 1`
 		arg = id
 	} else if name != "" {
-		query = `SELECT id, base, name, maker FROM mods WHERE name = ? ORDER BY id DESC LIMIT 1`
+		query = `SELECT id, base, name, maker, COALESCE(use_vanilla_saves, 0), COALESCE(install_to_app_root, 0), COALESCE(use_butterscotch, 0) FROM mods WHERE name = ? ORDER BY id DESC LIMIT 1`
 		arg = name
 	} else {
 		return nil, fmt.Errorf("neither id nor name provided")
@@ -198,9 +228,13 @@ func GetModByNameOrId(name string, id string) (*ModRecord, error) {
 
 	row := db.QueryRow(query, arg)
 	var rec ModRecord
-	if err := row.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker); err != nil {
+	var vanillaSavesInt, rootModeInt, butterscotchInt int
+	if err := row.Scan(&rec.ID, &rec.Base, &rec.Name, &rec.Maker, &vanillaSavesInt, &rootModeInt, &butterscotchInt); err != nil {
 		return nil, err
 	}
+	rec.UseVanillaSaves = (vanillaSavesInt != 0)
+	rec.InstallToAppRoot = (rootModeInt != 0)
+	rec.UseButterscotch = (butterscotchInt != 0)
 	return &rec, nil
 }
 
@@ -215,5 +249,3 @@ func DeleteMod(id int) error {
 	_, err = db.Exec("DELETE FROM mods WHERE id = ?", id)
 	return err
 }
-
-

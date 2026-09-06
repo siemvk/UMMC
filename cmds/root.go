@@ -11,6 +11,9 @@ var rootCmd = &cobra.Command{
 	Use:   "UMMC",
 	Short: "Undertale Manager Macos Cli (or Undertale macos mod cli, i forgot wich was the intended name.)",
 	Long:  `A fast undertale CLI in go made for macos but it works with unix.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		guiCmd.Run(cmd, args)
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.

@@ -2,31 +2,16 @@ package cmds
 
 import (
 	"UMMC/help"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 )
-
-type ModConfig struct {
-	ConfigVersion string `json:"config_version"`
-	Metadata      struct {
-		ID          string   `json:"id"`
-		Name        string   `json:"name"`
-		Version     string   `json:"version"`
-		Author      string   `json:"author"`
-		Description string   `json:"description"`
-		Game        string   `json:"game"`
-		GameVersion string   `json:"game_version"`
-		Tags        []string `json:"tags"`
-	} `json:"metadata"`
-	Files map[string]interface{} `json:"files"`
-}
 
 var qpFilenameCmdArg string
 var forceQuickPatchCmdArg bool
@@ -37,6 +22,9 @@ var createModNameCmdArg string
 var createModMakerCmdArg string
 var createModBaseCmdArg string
 var createModWinCmdArg bool
+var createModVanillaSavesCmdArg bool
+var createModRootCmdArg bool
+var createModButterscotchCmdArg bool
 var forceCreateModCmdArg bool
 var createModMacosCmdArg bool
 
@@ -118,61 +106,28 @@ var addModCmdThingy = &cobra.Command{
 			return
 		}
 
-		var modCfg *ModConfig
-		cfgPath := filepath.Join(folderPath, "mod_config.json")
-		if data, err := os.ReadFile(cfgPath); err == nil {
-			var cfg ModConfig
-			if err := json.Unmarshal(data, &cfg); err == nil {
-				modCfg = &cfg
-				fmt.Println("Loaded metadata from mod_config.json")
-			}
-		}
-
-		name := createModNameCmdArg
-		if name == "" && modCfg != nil && modCfg.Metadata.Name != "" {
-			name = modCfg.Metadata.Name
-		}
-		if name == "" {
-			name = filepath.Base(folderPath)
-		}
-
-		maker := createModMakerCmdArg
-		if maker == "" && modCfg != nil && modCfg.Metadata.Author != "" {
-			maker = modCfg.Metadata.Author
-		}
-		if maker == "" {
-			maker = "Unknown"
-		}
-
-		base := createModBaseCmdArg
-		if base == "" && modCfg != nil && modCfg.Metadata.GameVersion != "" {
-			base = modCfg.Metadata.GameVersion
-		}
-		if base == "" {
-			if createModWinCmdArg {
-				base = "win"
-			} else {
-				base = "1.08"
-			}
-		}
-
-		if !createModMacosCmdArg && !strings.HasSuffix(base, "-w") {
-			base = base + "-w"
-		}
-
-		dstPath := filepath.Join(help.ExpandPath("~/UMMC/mods/"), name)
-
-		if err := help.CopyDir(folderPath, dstPath, forceCreateModCmdArg); err != nil {
-			fmt.Printf("Error copying mod directory: %v\n", err)
+		if createModButterscotchCmdArg && !help.IsButterscotchInstalled() {
+			fmt.Println("Error: Cannot enable Butterscotch runtime because it is not installed.")
+			fmt.Println("Download it first using 'UMMC download-butterscotch' or via the GUI Tools tab.")
 			return
 		}
 
-		if _, err := help.AddMod(base, name, maker); err != nil {
-			fmt.Printf("Warning: Created mod folder at %s but failed to save DB entry: %v\n", dstPath, err)
+		base := createModBaseCmdArg
+		isMacos := createModMacosCmdArg
+		if createModWinCmdArg {
+			isMacos = false
+			if !strings.HasSuffix(base, "-w") {
+				base = base + "-w"
+			}
 		}
 
-		fmt.Printf("Successfully created mod '%s' (Maker: %s, Base: %s)!\n", name, maker, base)
-		fmt.Printf("The mod is now stored in %s so you can safely delete the folder you gave as input and the mod will continue working.\n", dstPath)
+		rec, err := help.AddModAction(folderPath, createModNameCmdArg, createModMakerCmdArg, base, isMacos, createModVanillaSavesCmdArg, createModRootCmdArg, createModButterscotchCmdArg, forceCreateModCmdArg, nil)
+		if err != nil {
+			fmt.Printf("Error adding mod: %v\n", err)
+			return
+		}
+
+		fmt.Printf("Successfully created mod '%s' (Maker: %s, Base: %s, Vanilla Saves: %v, Root Mode: %v, Butterscotch: %v)!\n", rec.Name, rec.Maker, rec.Base, rec.UseVanillaSaves, rec.InstallToAppRoot, rec.UseButterscotch)
 	},
 }
 
@@ -188,11 +143,23 @@ var listModsCmdThingy = &cobra.Command{
 
 		fmt.Println("=== Undertale Mods ===")
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tMAKER\tBASE")
-		fmt.Fprintln(w, "--\t----\t-----\t----")
+		fmt.Fprintln(w, "ID\tNAME\tMAKER\tBASE\tROOT MODE\tBUTTERSCOTCH\tVANILLA SAVES")
+		fmt.Fprintln(w, "--\t----\t-----\t----\t---------\t------------\t-------------")
 
 		for _, rec := range records {
-			fmt.Fprintf(w, "%d\t%s\t%s\t%s\n", rec.ID, rec.Name, rec.Maker, rec.Base)
+			vanillaStr := "No"
+			if rec.UseVanillaSaves {
+				vanillaStr = "Yes"
+			}
+			rootStr := "No"
+			if rec.InstallToAppRoot {
+				rootStr = "Yes"
+			}
+			bsStr := "No"
+			if rec.UseButterscotch {
+				bsStr = "Yes"
+			}
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", rec.ID, rec.Name, rec.Maker, rec.Base, rootStr, bsStr, vanillaStr)
 		}
 		w.Flush()
 		fmt.Printf("\nTotal mods: %d\n", len(records))
@@ -201,12 +168,24 @@ var listModsCmdThingy = &cobra.Command{
 
 var loadModIdCmdArg string
 var loadModNameCmdArg string
+var loadModSaveCmdArg string
 var noLaunchLoadModCmdArg bool
+
+func promptSaveName(promptText, defaultName string) string {
+	fmt.Print(promptText)
+	var input string
+	_, _ = fmt.Scanln(&input)
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return defaultName
+	}
+	return input
+}
 
 var LoadModCmdThingy = &cobra.Command{
 	Use:     "play [optional name or id]",
 	Aliases: []string{"load", "run", "start"},
-	Short:   "Apply a mod from database and launch Undertale",
+	Short:   "Apply a mod from database, switch to its save profile, and launch Undertale",
 	Args:    cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		nameToLoad := loadModNameCmdArg
@@ -237,83 +216,59 @@ var LoadModCmdThingy = &cobra.Command{
 			return
 		}
 
-		targetAppPath := help.ExpandPath("~/Library/Application Support/Steam/steamapps/common/Undertale/UNDERTALE.app")
-		if _, err := os.Stat(targetAppPath); err != nil {
-			fmt.Printf("Error: Undertale app not found at %s\n", targetAppPath)
-			return
+		targetSaveMod := rec.Name
+		if rec.UseVanillaSaves {
+			targetSaveMod = "Vanilla"
+			fmt.Printf("Notice: Mod '%s' is configured to use Vanilla save files.\n", rec.Name)
 		}
-		targetGameIosPath := filepath.Join(targetAppPath, "Contents/Resources/game.ios")
 
-		// Restore base game backup if available
-		backupRec, errBackup := help.GetBackupByVersionOrId(rec.Base, "")
-		if errBackup == nil && backupRec != nil && backupRec.BackupPath != "" {
-			fmt.Printf("Restoring base game backup version %s...\n", rec.Base)
-			if err := help.CopyFile(backupRec.BackupPath, targetAppPath, true); err != nil {
-				fmt.Printf("Warning: Failed to restore base backup: %v\n", err)
+		// 1. Handle active save (preserve current game progress)
+		activeDir := help.GetUndertaleSaveDir()
+		if help.HasActiveSaveFiles(activeDir) {
+			activeInfo, _ := help.GetActiveSaveInfo()
+			if activeInfo != nil && activeInfo.Name != "" {
+				fmt.Printf("Auto-saving active game progress to '%s' (mod: %s)...\n", activeInfo.Name, activeInfo.ModName)
+				_, _ = help.SaveCurrentGame(activeInfo.Name, activeInfo.ModName, true, nil)
+			} else {
+				defaultSaveName := fmt.Sprintf("untracked_%s", time.Now().Format("20060102_150405"))
+				saveName := promptSaveName(fmt.Sprintf("Detected untracked active save data. Enter name to save current game [default: %s]: ", defaultSaveName), defaultSaveName)
+				fmt.Printf("Saving current active progress as '%s' (mod: Vanilla)...\n", saveName)
+				_, _ = help.SaveCurrentGame(saveName, "Vanilla", true, nil)
+			}
+		}
+
+		// 2. Handle target mod save profile
+		targetSave := loadModSaveCmdArg
+		if targetSave != "" {
+			fmt.Printf("Loading save '%s' for mod '%s'...\n", targetSave, targetSaveMod)
+			if err := help.LoadSave(targetSave, targetSaveMod, nil); err != nil {
+				fmt.Printf("Warning: Failed to load specified save '%s': %v\n", targetSave, err)
 			}
 		} else {
-			cleanBase := strings.TrimSuffix(rec.Base, "-w")
-			if backupRec2, errBackup2 := help.GetBackupByVersionOrId(cleanBase, ""); errBackup2 == nil && backupRec2 != nil && backupRec2.BackupPath != "" {
-				fmt.Printf("Restoring base game backup version %s...\n", cleanBase)
-				if err := help.CopyFile(backupRec2.BackupPath, targetAppPath, true); err != nil {
-					fmt.Printf("Warning: Failed to restore base backup: %v\n", err)
-				}
-				if strings.HasSuffix(rec.Base, "-w") {
-					winDataPath := help.ExpandPath("~/UMMC/windows/data.win")
-					if _, errStat := os.Stat(winDataPath); errStat == nil {
-						fmt.Println("Injecting Windows data.win for -w base...")
-						_ = help.CopyFile(winDataPath, targetGameIosPath, true)
-						_ = os.WriteFile(filepath.Join(filepath.Dir(targetGameIosPath), "winpatchdetect"), []byte("injected"), 0644)
-					}
-				}
+			modSaves, _ := help.GetSaves(targetSaveMod)
+			if len(modSaves) > 0 {
+				fmt.Printf("Loading save '%s' for mod '%s'...\n", modSaves[0].Name, targetSaveMod)
+				_ = help.LoadSave(modSaves[0].Name, targetSaveMod, nil)
 			} else {
-				fmt.Printf("Notice: No backup found for base '%s'. Applying mod directly onto current Undertale install.\n", rec.Base)
+				defaultNewName := "Save 1"
+				newSaveName := promptSaveName(fmt.Sprintf("No save data found for '%s'. Enter new save profile name [default: %s]: ", targetSaveMod, defaultNewName), defaultNewName)
+				_, _ = help.CreateEmptySave(newSaveName, targetSaveMod, nil)
+				_ = help.LoadSave(newSaveName, targetSaveMod, nil)
 			}
 		}
 
-		// Apply any .xdelta patch in the mod folder and copy all mod files to Undertale's Contents/Resources/
-		entries, errDir := os.ReadDir(modDirPath)
-		if errDir != nil {
-			fmt.Printf("Error reading mod directory: %v\n", errDir)
+		fmt.Printf("Applying mod '%s'...\n", rec.Name)
+		if err := help.ApplyModAction(fmt.Sprintf("%d", rec.ID), nil); err != nil {
+			fmt.Printf("Error applying mod: %v\n", err)
 			return
 		}
 
-		resourcesDir := filepath.Join(targetAppPath, "Contents/Resources")
-
-		// First: search for and apply any .xdelta patch file in the mod folder
-		for _, entry := range entries {
-			if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".xdelta") {
-				patchFile := filepath.Join(modDirPath, entry.Name())
-				fmt.Printf("Applying patch '%s' to Undertale...\n", entry.Name())
-				if err := help.PatchFileForce(targetGameIosPath, patchFile, true); err != nil {
-					fmt.Printf("Error applying mod patch: %v\n", err)
-					return
-				}
+		if !noLaunchLoadModCmdArg {
+			fmt.Println("Launching Undertale...")
+			if err := help.LaunchUndertale(nil); err != nil {
+				fmt.Printf("Error launching Undertale: %v\n", err)
 			}
 		}
-
-		// Second: copy all files and folders from mod directory to Contents/Resources/
-		for _, entry := range entries {
-			nameLower := strings.ToLower(entry.Name())
-			if strings.HasSuffix(nameLower, ".xdelta") || nameLower == "mod_config.json" {
-				continue
-			}
-
-			src := filepath.Join(modDirPath, entry.Name())
-			var dst string
-			if nameLower == "data.win" {
-				dst = targetGameIosPath
-			} else {
-				dst = filepath.Join(resourcesDir, entry.Name())
-			}
-
-			if err := help.CopyFile(src, dst, true); err != nil {
-				fmt.Printf("Warning: Failed to copy %s: %v\n", entry.Name(), err)
-			}
-		}
-
-		fmt.Printf("Successfully applied mod '%s'!\n", rec.Name)
-
 	},
 }
 
@@ -364,6 +319,96 @@ var removeModCmdThingy = &cobra.Command{
 	},
 }
 
+var editModNameCmdArg string
+var editModIdCmdArg string
+var editModNewNameCmdArg string
+var editModNewMakerCmdArg string
+var editModNewBaseCmdArg string
+var editModMacosCmdArg bool
+var editModWinCmdArg bool
+var editModVanillaSavesCmdArg bool
+var editModRootCmdArg bool
+var editModButterscotchCmdArg bool
+
+var editModCmdThingy = &cobra.Command{
+	Use:     "edit [optional name or id]",
+	Aliases: []string{"update", "modify"},
+	Short:   "Edit mod metadata and options (name, author/maker, base, macos-mod, root-mode, vanilla saves, butterscotch)",
+	Args:    cobra.MaximumNArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		nameToEdit := editModNameCmdArg
+		idToEdit := editModIdCmdArg
+
+		if len(args) == 1 {
+			if _, err := strconv.Atoi(args[0]); err == nil && idToEdit == "" {
+				idToEdit = args[0]
+			} else {
+				nameToEdit = args[0]
+			}
+		}
+
+		if nameToEdit == "" && idToEdit == "" {
+			fmt.Println("Error: No mod name or ID specified. Provide an argument or use --name / --id.")
+			return
+		}
+
+		rec, err := help.GetModByNameOrId(nameToEdit, idToEdit)
+		if err != nil || rec == nil {
+			fmt.Printf("Error: Mod not found in database: %v\n", err)
+			return
+		}
+
+		newName := editModNewNameCmdArg
+		if newName == "" {
+			newName = rec.Name
+		}
+		newMaker := editModNewMakerCmdArg
+		if newMaker == "" {
+			newMaker = rec.Maker
+		}
+		newBase := editModNewBaseCmdArg
+		if newBase == "" {
+			newBase = rec.Base
+		}
+
+		isMacos := !strings.HasSuffix(rec.Base, "-w")
+		if cmd.Flags().Changed("macos-mod") {
+			isMacos = editModMacosCmdArg
+		}
+		if cmd.Flags().Changed("win") && editModWinCmdArg {
+			isMacos = false
+		}
+
+		useVanilla := rec.UseVanillaSaves
+		if cmd.Flags().Changed("vanilla-saves") {
+			useVanilla = editModVanillaSavesCmdArg
+		}
+
+		rootMode := rec.InstallToAppRoot
+		if cmd.Flags().Changed("install-to-app-root") || cmd.Flags().Changed("root") {
+			rootMode = editModRootCmdArg
+		}
+
+		useButterscotch := rec.UseButterscotch
+		if cmd.Flags().Changed("use-butterscotch") || cmd.Flags().Changed("butterscotch") {
+			useButterscotch = editModButterscotchCmdArg
+			if useButterscotch && !help.IsButterscotchInstalled() {
+				fmt.Println("Error: Cannot enable Butterscotch runtime because it is not installed.")
+				fmt.Println("Download it first using 'UMMC download-butterscotch' or via the GUI Tools tab.")
+				return
+			}
+		}
+
+		updated, err := help.UpdateModMetadataAction(rec.ID, newName, newMaker, newBase, isMacos, useVanilla, rootMode, useButterscotch, nil)
+		if err != nil {
+			fmt.Printf("Error updating mod: %v\n", err)
+			return
+		}
+
+		fmt.Printf("Successfully updated mod '%s' (Maker: %s, Base: %s, Vanilla Saves: %v, Root Mode: %v, Butterscotch: %v)!\n", updated.Name, updated.Maker, updated.Base, updated.UseVanillaSaves, updated.InstallToAppRoot, updated.UseButterscotch)
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(quickPatchCmdThingy)
 	rootCmd.AddCommand(modsCmdThingy)
@@ -375,19 +420,40 @@ func init() {
 	modsCmdThingy.AddCommand(listModsCmdThingy)
 	modsCmdThingy.AddCommand(removeModCmdThingy)
 	modsCmdThingy.AddCommand(LoadModCmdThingy)
+	modsCmdThingy.AddCommand(editModCmdThingy)
 	modsCmdThingy.AddCommand(restoreBackupCmd)
 
 	addModCmdThingy.Flags().StringVarP(&createModFolderCmdArg, "folder", "d", "", "The folder that contains all the mod data")
 	addModCmdThingy.Flags().StringVarP(&createModNameCmdArg, "name", "n", "", "The name of the mod")
 	addModCmdThingy.Flags().StringVarP(&createModMakerCmdArg, "maker", "m", "", "The author/maker of the mod")
 	addModCmdThingy.Flags().StringVarP(&createModBaseCmdArg, "base", "b", "", "The base game version/type for the mod")
-	addModCmdThingy.Flags().BoolVarP(&createModWinCmdArg, "win", "w", false, "Set base to 'win' (Windows version)")
+	addModCmdThingy.Flags().BoolVarP(&createModWinCmdArg, "win", "w", false, "Set base to Windows version (appends -w)")
 	addModCmdThingy.Flags().BoolVar(&createModMacosCmdArg, "macos-mod", false, "Specify that this is a macOS mod (prevents appending '-w' to base)")
+	addModCmdThingy.Flags().BoolVar(&createModVanillaSavesCmdArg, "vanilla-saves", false, "Make this mod use and share vanilla Undertale save files")
+	addModCmdThingy.Flags().BoolVar(&createModRootCmdArg, "install-to-app-root", false, "Install mod directly into UNDERTALE.app root instead of Contents/Resources")
+	addModCmdThingy.Flags().BoolVar(&createModRootCmdArg, "root", false, "Alias for --install-to-app-root")
+	addModCmdThingy.Flags().BoolVar(&createModButterscotchCmdArg, "use-butterscotch", false, "Use the experimental Butterscotch GameMaker runner for this mod")
+	addModCmdThingy.Flags().BoolVar(&createModButterscotchCmdArg, "butterscotch", false, "Alias for --use-butterscotch")
 	addModCmdThingy.Flags().BoolVarP(&forceCreateModCmdArg, "force", "f", false, "Force overwrite if mod already exists")
 
 	removeModCmdThingy.Flags().StringVarP(&removeModNameCmdArg, "name", "n", "", "The name of the mod to remove")
 	removeModCmdThingy.Flags().StringVarP(&removeModIdCmdArg, "id", "i", "", "The ID of the mod to remove")
 
+	editModCmdThingy.Flags().StringVarP(&editModNameCmdArg, "name", "n", "", "The current name of the mod to edit")
+	editModCmdThingy.Flags().StringVarP(&editModIdCmdArg, "id", "i", "", "The ID of the mod to edit")
+	editModCmdThingy.Flags().StringVar(&editModNewNameCmdArg, "new-name", "", "New name for the mod")
+	editModCmdThingy.Flags().StringVar(&editModNewMakerCmdArg, "maker", "", "New author/maker for the mod")
+	editModCmdThingy.Flags().StringVar(&editModNewBaseCmdArg, "base", "", "New base version for the mod")
+	editModCmdThingy.Flags().BoolVar(&editModMacosCmdArg, "macos-mod", false, "Set whether this is a macOS mod")
+	editModCmdThingy.Flags().BoolVarP(&editModWinCmdArg, "win", "w", false, "Set whether this is a Windows mod (appends -w)")
+	editModCmdThingy.Flags().BoolVar(&editModVanillaSavesCmdArg, "vanilla-saves", false, "Set whether this mod uses Vanilla save files")
+	editModCmdThingy.Flags().BoolVar(&editModRootCmdArg, "install-to-app-root", false, "Set whether to install mod into UNDERTALE.app root")
+	editModCmdThingy.Flags().BoolVar(&editModRootCmdArg, "root", false, "Alias for --install-to-app-root")
+	editModCmdThingy.Flags().BoolVar(&editModButterscotchCmdArg, "use-butterscotch", false, "Set whether to use the Butterscotch runner for this mod")
+	editModCmdThingy.Flags().BoolVar(&editModButterscotchCmdArg, "butterscotch", false, "Alias for --use-butterscotch")
+
 	LoadModCmdThingy.Flags().StringVarP(&loadModNameCmdArg, "name", "n", "", "The name of the mod to play")
 	LoadModCmdThingy.Flags().StringVarP(&loadModIdCmdArg, "id", "i", "", "The ID of the mod to play")
+	LoadModCmdThingy.Flags().StringVarP(&loadModSaveCmdArg, "save", "s", "", "The specific save profile to load with the mod")
+	LoadModCmdThingy.Flags().BoolVar(&noLaunchLoadModCmdArg, "no-launch", false, "Apply mod and switch save without launching Undertale")
 }

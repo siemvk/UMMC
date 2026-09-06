@@ -1,1 +1,4 @@
 UMMC
+*.app
+dist/
+.DS_Store

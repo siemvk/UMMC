@@ -3,10 +3,12 @@
 UMMC is a simple tool for moding undertale. It allows you to easily patch the game and add full mods to it. 
 
 ## Features
+- Graphical User Interface (Fyne GUI) for 1-click modding, backups, and patching
 - Making backups of the original game files
-- (Planned) Manage save files
-- (Planned) Install mods to the game
-- download the windows version of undertale from steam easily
+- Managing save files
+- Install and play mods easily with 1-click
+- Download the Windows version of Undertale from Steam easily
+- Inject Windows data files for Windows-only mods
 
 ## Installation
 
@@ -25,6 +27,15 @@ The non Go dependencies UMMC needs are:
 
 
 ## Usage
+ 
+### Graphical Interface (GUI)
+To start the GUI, run:
+```bash
+./UMMC gui
+```
+*(Or simply run `./UMMC` / double-click the binary)*
+
+### Command Line Interface (CLI)
 
 After you have installed UMMC, install undertale via steam. Next make a initial backup of your game files to prevent unnecessary redownloads later. 
 you can do this by running:
@@ -45,6 +56,21 @@ UMMC download-win -u <your steam username>
 this wil prompt you for your steam login password and steam guard code if you have it enabled.
 If you are getting an error about steamcmd not being found, install steamcmd and add it to your path. You can find instructions for this [here](https://developer.valvesoftware.com/wiki/SteamCMD). Alternatively, you can folow the guide [here]() to do it without steamcmd.
 
+
 ## Mods confirmed to work with UMMC on macOS
 - [C!UNDERTALE - REDUX UPDATE](https://gamebanana.com/mods/601488)
-- 
+- [Undertale - Just have fun](https://gamebanana.com/mods/download/542409#FileInfo_1472284) (See [my notes](./notes/JHF.md) for instructions.)
+- [Undertale Connect v1.3.4](https://landimizer.itch.io/ut-connect)
+- [Undertale, but you play as Sans](https://gamebanana.com/mods/514736)
+- [Undertale with a Gaster Blaster](https://gamebanana.com/mods/428457)
+- [Undertale Random Souls](https://gamebanana.com/mods/514890)
+- [Undertale Mouse Mod](https://gamebanana.com/mods/514892)
+- [UNDERTALE: Wind Challenge](https://gamebanana.com/mods/565434)
+- [UNDERTALE - MAGMATOMB](https://gamebanana.com/mods/708798)
+
+## Mods that sadly do not work with UMMC on macOS
+- [Undertale Together](https://www.moddb.com/mods/undertale-together) (the other versions of this mod also dont work.) (unknown why its broken)
+- [Undertale Red & Yellow](https://gamejolt.com/games/undertale-red-yellow/877387) (.exe file is not compatible with macOS)
+- [UNDERTALE Hard Mode: Director's Cut](https://gamejolt.com/games/uthardmodedc/973954) (.exe file is not compatible with macOS)
+- [Undertale but a Gaster Blaster spawns every second](https://gamebanana.com/mods/538168) (load in idk why it crashes, but it does)
+- [UNDERTALE: Monster Arena](https://gamebanana.com/mods/691720) (.exe file is not compatible with macOS)
