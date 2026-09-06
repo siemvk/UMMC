@@ -10,23 +10,13 @@ UMMC is a simple tool for moding undertale. It allows you to easily patch the ga
 - Download the Windows version of Undertale from Steam easily
 - Inject Windows data files for Windows-only mods
 
-## Installation
-
-As of now, UMMC is only tested on macOS, but it should work on linux too. 
-
-You have to build UMMC from source, as I am not emotionally ready to try and get it on homebrew.
-```bash
-go mod download
-go build
-```
-The non Go dependencies UMMC needs are:
-- [go](https://go.dev/doc/install) (for building UMMC) [brew install go](https://formulae.brew.sh/formula/go)
-- [steamcmd](https://developer.valvesoftware.com/wiki/SteamCMD) (only if you want to easily download the windows version of undertale) [brew install steamcmd](https://formulae.brew.sh/cask/steamcmd)
-- [xdelta3](https://github.com/jmacd/xdelta) (for patching the game files, needed for modding) [brew install xdelta3](https://formulae.brew.sh/formula/xdelta)
-
-
+## Installing
+Just put it in your Applications folder, or don't idc.
 
 ## Usage
+
+### UMMC.app 
+Just open it!
  
 ### Graphical Interface (GUI)
 To start the GUI, run:
@@ -53,8 +43,22 @@ Next we will download the windows version of undertale as most mods are made for
 ```bash
 UMMC download-win -u <your steam username>
 ```
-this wil prompt you for your steam login password and steam guard code if you have it enabled.
+this will prompt you for your steam login password and steam guard code if you have it enabled.
 If you are getting an error about steamcmd not being found, install steamcmd and add it to your path. You can find instructions for this [here](https://developer.valvesoftware.com/wiki/SteamCMD). Alternatively, you can folow the guide [here]() to do it without steamcmd.
+
+## Building from source
+
+You have to build UMMC from source, as I am not emotionally ready to try and get it on homebrew.
+```bash
+go mod download
+go build
+```
+The non Go dependencies UMMC needs are:
+- [go](https://go.dev/doc/install) (for building UMMC) [brew install go](https://formulae.brew.sh/formula/go)
+- [steamcmd](https://developer.valvesoftware.com/wiki/SteamCMD) (only if you want to easily download the windows version of undertale) [brew install steamcmd](https://formulae.brew.sh/cask/steamcmd)
+- [xdelta3](https://github.com/jmacd/xdelta) (for patching the game files, needed for modding) [brew install xdelta3](https://formulae.brew.sh/formula/xdelta)
+
+
 
 
 ## Mods confirmed to work with UMMC on macOS
